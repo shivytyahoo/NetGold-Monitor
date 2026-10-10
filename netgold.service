@@ -1,0 +1,23 @@
+# NetGold Monitor — systemd unit (Linux equivalent of Windows Service mode).
+# Install:
+#   sudo install -m 0755 netgold /usr/local/bin/netgold
+#   sudo mkdir -p /var/lib/netgold
+#   sudo cp netgold.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now netgold
+# Dashboard: http://localhost:8080
+[Unit]
+Description=NetGold Monitor — free, open-source network monitoring (developed by Shivam Bhalla)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/netgold -addr :8080 -data /var/lib/netgold -interval 60s -netflow-port 2055 -sflow-port 6343 -syslog-port 514
+WorkingDirectory=/var/lib/netgold
+# Lets the syslog receiver bind the privileged port 514 without root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

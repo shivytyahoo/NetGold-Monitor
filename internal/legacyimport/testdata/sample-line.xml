@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<Line>
+	<Object>Line</Object>
+	<Envelope>
+		<Primary>
+			<X>124.42376709</X>
+			<Y>-98.83410645</Y>
+		</Primary>
+		<Secondary>
+			<X>278.75170898</X>
+			<Y>-98.83410645</Y>
+		</Secondary>
+	</Envelope>
+	<Width>3</Width>
+	<BaseColor>0x00FF0000</BaseColor>
+	<Shadow>0</Shadow>
+	<PositionLocked>false</PositionLocked>
+	<ZOrder>70</ZOrder>
+	<StartX>278.75170898</StartX>
+	<StartY>-98.83410645</StartY>
+	<EndX>124.42376709</EndX>
+	<EndY>-98.83410645</EndY>
+</Line>

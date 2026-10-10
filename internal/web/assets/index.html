@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="netgold-build" content="__NETGOLD_VERSION__">
+<title>NetGold Monitor</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Shared status-marker gradients (diamond plate fills),
+     referenced by the Maps and Topology diagrams and the device header. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="ng-grad-up" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#53b45e"/><stop offset="1" stop-color="#2f7d33"/>
+  </linearGradient>
+  <linearGradient id="ng-grad-down" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#e5594f"/><stop offset="1" stop-color="#ae2b23"/>
+  </linearGradient>
+  <linearGradient id="ng-grad-unknown" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#f0b84a"/><stop offset="1" stop-color="#cd8d1c"/>
+  </linearGradient>
+  <linearGradient id="ng-grad-maint" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#c3ccd4"/><stop offset="1" stop-color="#7d8894"/>
+  </linearGradient>
+  <filter id="ng-marker-shadow" x="-45%" y="-45%" width="190%" height="190%">
+    <feDropShadow dx="0" dy="1.6" stdDeviation="1.7" flood-color="#101418" flood-opacity="0.38"/>
+  </filter>
+</defs></svg>
+<div class="appwrap">
+  <!-- Header row 1: brand at the left; live counts, alarm controls
+       and the signed-in user (role + sign out) at the right. -->
+  <header class="brandbar">
+    <div class="logo">🛰️ NetGold <span>Monitor</span></div>
+    <div class="brand-right">
+      <div class="livestat" id="live-summary">Loading status…</div>
+      <div class="alarmctl">
+        <span id="alarm-badge" class="alarm-badge hidden" title="Unacknowledged outages">0</span>
+        <select id="sound-pack" title="Alarm sound pack">
+          <option value="siren">Sound: Classic Siren</option>
+          <option value="chime">Sound: Soft Chime</option>
+          <option value="beeps">Sound: Digital Beeps</option>
+        </select>
+        <input id="sound-vol" type="range" min="0" max="100" value="80" title="Alarm volume" style="width:84px">
+        <button id="alarm-sound-btn" title="Toggle the audible alarm for device down/up events">🔔 Alarm sound: On</button>
+        <button id="alarm-notif-btn" title="Toggle browser notifications for device down/up events">Desktop alerts: Off</button>
+        <span id="sound-hint" class="soundhint hidden">🔇 Click anywhere once to enable alarm sound (browser rule)</span>
+      </div>
+      <div class="userbox">
+        <span id="user-role" class="rolechip" title="Who you are signed in as"></span>
+        <span id="readonly-ind" class="ro-ind" title="Viewer sessions can look at everything but cannot change anything">Read-only access</span>
+        <button id="signout-btn" title="Sign out of NetGold">Sign out</button>
+      </div>
+    </div>
+  </header>
+  <!-- Header row 2: the section tabs, console style — every section
+       one click away across the top; the version credit rides at the
+       right end of the bar. -->
+  <nav class="tabbar" id="tabbar">
+    <button data-view="dashboard" class="navbtn tabbtn active">Dashboard</button>
+    <button data-view="devices" class="navbtn tabbtn">Devices</button>
+    <button data-view="maps" class="navbtn tabbtn">Maps</button>
+    <button data-view="traffic" class="navbtn tabbtn">Traffic</button>
+    <button data-view="logs" class="navbtn tabbtn">Logs</button>
+    <button data-view="reports" class="navbtn tabbtn">Reports</button>
+    <button data-view="alarms" class="navbtn tabbtn">Alarms</button>
+    <button data-view="discover" class="navbtn tabbtn">Discovery</button>
+    <button data-view="import" class="navbtn tabbtn">Legacy Import</button>
+    <button data-view="settings" class="navbtn tabbtn">Settings</button>
+    <button data-view="about" class="navbtn tabbtn">About</button>
+    <span class="tab-credit">NetGold Monitor v__NETGOLD_VERSION__ — Developed by <b>Shivam Bhalla</b></span>
+  </nav>
+  <div id="conn-banner" class="conn-banner hidden" role="alert"></div>
+
+  <div class="mainwrap">
+    <main>
+      <!-- DASHBOARD -->
+      <section id="view-dashboard" class="view">
+        <div class="cards">
+          <div class="card"><h3>Total Devices</h3><div class="big" id="st-total">–</div></div>
+          <div class="card up"><h3>Up</h3><div class="big" id="st-up">–</div></div>
+          <div class="card down"><h3>Down</h3><div class="big" id="st-down">–</div></div>
+        </div>
+        <div class="cols">
+          <div class="panel">
+            <h2>🔴 Down Devices</h2>
+            <div id="down-list"></div>
+            <h2>Top Interfaces by Bandwidth</h2>
+            <table id="top-table"><thead><tr><th>Device</th><th>Interface</th><th>In</th><th>Out</th></tr></thead><tbody></tbody></table>
+          </div>
+          <div class="panel">
+            <h2>Recent Events</h2>
+            <div id="events"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>🚨 Alarms — recent outages</h2>
+          <p class="muted">Newest first. A device that goes down triggers the alarm sound, a banner and a desktop
+          notification (when enabled above). Acknowledge silences the sound for that outage.</p>
+          <div id="alarms"></div>
+        </div>
+      </section>
+
+      <!-- DEVICES -->
+      <section id="view-devices" class="view hidden">
+        <div class="panel">
+          <h2 class="admin-only">Add Device</h2>
+          <form id="add-form" class="inline-form admin-only">
+            <input name="name" placeholder="Name (e.g. Core Router)">
+            <input name="ip" placeholder="IP address *" required>
+            <select name="type">
+              <option value="unknown">Type: Auto/Unknown</option><option value="router">Router</option>
+              <option value="switch">Switch</option><option value="server">Server</option>
+              <option value="firewall">Firewall</option><option value="demo">Demo (fake data)</option>
+            </select>
+            <select name="group_id" id="group-select"><option value="">No group</option></select>
+            <select name="snmp_version" id="add-snmp-version">
+              <option value="v2c">SNMP v2c</option>
+              <option value="v3">SNMP v3</option>
+            </select>
+            <span class="v2c-fields"><input name="community" placeholder="SNMP community" value="public"></span>
+            <button>Add Device</button>
+          </form>
+          <div class="v3-fields hidden admin-only" id="add-v3-fields">
+            <div class="inline-form">
+              <input name="v3_sec_name" form="add-form" placeholder="v3 user name (security name)">
+              <select name="v3_sec_level" form="add-form">
+                <option value="noAuthNoPriv">noAuthNoPriv</option>
+                <option value="authNoPriv">authNoPriv</option>
+                <option value="authPriv" selected>authPriv</option>
+              </select>
+              <select name="v3_auth_proto" form="add-form">
+                <option value="">Auth: none</option><option value="MD5">Auth: MD5</option><option value="SHA" selected>Auth: SHA</option>
+              </select>
+              <input name="v3_auth_pass" form="add-form" type="password" placeholder="Auth password">
+              <select name="v3_priv_proto" form="add-form">
+                <option value="">Priv: none</option><option value="DES">Priv: DES</option><option value="AES" selected>Priv: AES</option>
+              </select>
+              <input name="v3_priv_pass" form="add-form" type="password" placeholder="Privacy password">
+            </div>
+            <p class="muted">SNMP v3 passwords are stored only in NetGold's local database on this computer — they are never sent anywhere else and never shown again in full.</p>
+          </div>
+          <form id="group-form" class="inline-form admin-only">
+            <input name="name" placeholder="New group name (e.g. Head Office)" required>
+            <button>Add Group</button>
+          </form>
+          <h2>All Devices</h2>
+          <table id="dev-table"><thead><tr><th></th><th>Name</th><th>IP</th><th>Type</th><th>Latency</th><th>Uptime</th><th>Last Poll</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- DEVICE DETAIL -->
+      <section id="view-device" class="view hidden">
+        <button id="back-btn">← Back to Devices</button>
+        <h2 id="dev-title"></h2>
+        <p id="dev-meta" class="muted"></p>
+        <div class="panel dev-head">
+          <span id="dev-head-marker"></span>
+          <div class="dev-head-info">
+            <div id="dev-head-line"></div>
+            <div id="dev-head-sub" class="muted"></div>
+          </div>
+          <div class="dev-head-uptimes">
+            <div class="uptime-chip"><h4>Uptime · 24h</h4><b id="dev-uptime-24h">—</b></div>
+            <div class="uptime-chip"><h4>Uptime · 7 days</h4><b id="dev-uptime-7d">—</b></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Status Timeline</h3>
+          <div class="rangebar">
+            Range:
+            <button data-tlrange="24h" class="tlbtn">24h</button>
+            <button data-tlrange="48h" class="tlbtn active">48h</button>
+            <button data-tlrange="7d" class="tlbtn">7 days</button>
+            <span id="tl-summary" class="muted"></span>
+            <span class="tl-export-range">
+              <label>Export from <input type="datetime-local" id="tl-export-from" title="Start of the period the export covers — clear both fields for the full history"></label>
+              <label>to <input type="datetime-local" id="tl-export-to" title="End of the period the export covers — clear both fields for the full history"></label>
+            </span>
+            <a id="tl-export-xlsx" href="#" title="Download the status timeline for the chosen period as an Excel workbook">⬇ Export Excel</a>
+            <a id="tl-export-pdf" href="#" title="Download the status timeline for the chosen period as a PDF document">⬇ Export PDF</a>
+          </div>
+          <div id="tl-bar" class="tl-bar"></div>
+          <div id="tl-list"></div>
+        </div>
+        <div class="panel">
+          <h3>Recent Events</h3>
+          <div id="dev-events"></div>
+        </div>
+        <div class="panel">
+          <h3>Monitors</h3>
+          <div id="dev-monitors"></div>
+          <form id="monitor-form" class="inline-form admin-only">
+            <select name="name" id="monitor-name">
+              <option>HTTP</option><option>HTTPS</option><option>FTP</option><option>SMTP</option>
+              <option>POP3</option><option>IMAP</option><option>NNTP</option><option>Telnet</option>
+              <option>SSH</option><option>DNS</option><option>Echo</option><option>Time</option><option>TCP</option>
+            </select>
+            <input name="port" type="number" min="0" max="65535" placeholder="Port (blank = default)" style="width:170px">
+            <input name="target" placeholder="Target (DNS name / HTTP path)" style="width:220px">
+            <input name="interval_sec" type="number" min="0" placeholder="Interval s (0 = global)" style="width:170px">
+            <input name="timeout_sec" type="number" min="0" placeholder="Timeout s (0 = 5s)" style="width:150px">
+            <input name="retries" type="number" min="0" placeholder="Retries" style="width:100px">
+            <button>Add Monitor</button>
+          </form>
+          <p class="muted">Service monitors run with the legacy system's check semantics (for example FTP expects a
+          “2xx” banner, HTTP sends a HEAD request) every monitor interval — default 60 s, timeout 5 s.
+          Their state is shown on the chips above; the device's own up/down status stays driven by ping/SNMP.</p>
+        </div>
+        <div class="panel hidden" id="edit-panel">
+          <h3>Edit Device</h3>
+          <form id="edit-form" class="inline-form">
+            <input name="name" placeholder="Name">
+            <input name="ip" placeholder="IP address">
+            <select name="type">
+              <option value="unknown">Type: Auto/Unknown</option><option value="router">Router</option>
+              <option value="switch">Switch</option><option value="server">Server</option>
+              <option value="firewall">Firewall</option><option value="demo">Demo (fake data)</option>
+            </select>
+            <select name="group_id" id="edit-group-select"><option value="">No group</option></select>
+            <select name="snmp_version" id="edit-snmp-version">
+              <option value="v2c">SNMP v2c</option>
+              <option value="v3">SNMP v3</option>
+            </select>
+            <label><input type="checkbox" name="snmp_disabled"> Ping-only (SNMP off)</label>
+            <label><input type="checkbox" name="monitoring_disabled"> Monitoring off (do not poll this device)</label>
+            <span class="v2c-fields"><input name="community" placeholder="SNMP community"></span>
+            <button>Save Changes</button>
+          </form>
+          <div class="v3-fields hidden" id="edit-v3-fields">
+            <div class="inline-form">
+              <input name="v3_sec_name" form="edit-form" placeholder="v3 user name (security name)">
+              <select name="v3_sec_level" form="edit-form">
+                <option value="noAuthNoPriv">noAuthNoPriv</option>
+                <option value="authNoPriv">authNoPriv</option>
+                <option value="authPriv">authPriv</option>
+              </select>
+              <select name="v3_auth_proto" form="edit-form">
+                <option value="">Auth: none</option><option value="MD5">Auth: MD5</option><option value="SHA">Auth: SHA</option>
+              </select>
+              <input name="v3_auth_pass" form="edit-form" type="password" placeholder="Auth password (shown masked)">
+              <select name="v3_priv_proto" form="edit-form">
+                <option value="">Priv: none</option><option value="DES">Priv: DES</option><option value="AES">Priv: AES</option>
+              </select>
+              <input name="v3_priv_pass" form="edit-form" type="password" placeholder="Privacy password (shown masked)">
+            </div>
+            <p class="muted">A password field showing ••• means a password is stored; leave it as shown to keep it, clear it to remove it, or type a new one to replace it.</p>
+          </div>
+        </div>
+        <div class="rangebar">
+          Range:
+          <button data-range="1h" class="rbtn">1h</button>
+          <button data-range="6h" class="rbtn active">6h</button>
+          <button data-range="24h" class="rbtn">24h</button>
+          <button data-range="7d" class="rbtn">7d</button>
+          <button id="poll-now" class="admin-only">Poll Now</button>
+          <button id="edit-btn" class="admin-only">Edit Device</button>
+          <button id="dev-mon-btn" class="admin-only">Disable Monitoring</button>
+          <button id="dev-del-btn" class="admin-only">Delete Device</button>
+        </div>
+        <div class="cols">
+          <div class="panel"><h3>Ping Latency (ms)</h3><div id="chart-ping" class="chart"></div></div>
+          <div class="panel"><h3>CPU % / Memory %</h3><div id="chart-cpu" class="chart"></div><div id="chart-mem" class="chart"></div></div>
+        </div>
+        <div class="panel">
+          <h3>Interfaces — click one for its MRTG-style bandwidth graph</h3>
+          <table id="if-table"><thead><tr><th>#</th><th>Name</th><th>Status</th><th>Speed</th><th>In</th><th>Out</th></tr></thead><tbody></tbody></table>
+          <h3 id="bw-title">Bandwidth</h3>
+          <div id="chart-bw" class="chart tall"></div>
+        </div>
+      </section>
+
+      <!-- MAPS -->
+      <section id="view-maps" class="view hidden">
+        <div class="panel">
+          <h2>Network Maps / Diagrams</h2>
+          <p class="muted">Diagrams imported from the legacy system, presented the way the legacy system presents them:
+          pick a group in the tree to open its map. Every device sits on a status marker — a green diamond
+          plate while it is up, a red diamond with a × badge the moment it goes down, amber while its state
+          is not known yet — with its device-type icon, its name, and a type / address caption under it, at the exact
+          position stored in the source database, over the map's own coloured regions and captions.
+          Line colour is live: green and flowing while the path is up, red and pulsing when a device on it
+          goes down. Hover a device for its status card; click it to open its full detail and status timeline.
+          On a crowded map, switch on <b>Tidy View</b> (in the map toolbar): the devices are rearranged on
+          screen so that no marker or label overlaps another and the map fits the page cleanly — the stored
+          the legacy system positions are not changed, and switching it off restores them exactly.</p>
+          <div class="maps-layout" id="maps-layout">
+            <aside class="map-tree-panel" id="map-tree-panel">
+              <div class="map-tree-head"><b>Device Groups</b>
+                <button type="button" id="map-tree-toggle" title="Hide the group tree">‹</button></div>
+              <div id="map-tree"></div>
+            </aside>
+            <button type="button" id="map-tree-show" class="hidden" title="Show the group tree">Groups ›</button>
+            <div class="maps-main">
+              <div class="map-toolbar">
+                <b id="map-title"></b>
+                <span class="map-tools">
+                  <button type="button" id="map-zoom-out" title="Zoom out">−</button>
+                  <span id="map-zoom-pct">100%</span>
+                  <button type="button" id="map-zoom-in" title="Zoom in">+</button>
+                  <button type="button" id="map-zoom-fit">Fit Map</button>
+                  <button type="button" id="map-tidy-btn" title="Arrange the devices so that no marker or label overlaps another. The stored positions are not changed — switch it off to see the faithful legacy layout again.">Tidy View: On</button>
+                  <button type="button" id="map-theme-btn">Dark Canvas</button>
+                </span>
+              </div>
+              <div id="map-wrap" class="mapwrap canvas-light"></div>
+              <p id="map-meta" class="muted"></p>
+              <div id="map-legend" class="map-legend"></div>
+            </div>
+          </div>
+        </div>
+        <div id="map-tip" class="map-tip hidden"></div>
+      </section>
+
+      <!-- TOPOLOGY -->
+      <section id="view-topology" class="view hidden">
+        <div class="panel">
+          <h2>Network Topology</h2>
+          <p class="muted">Your own editable network diagrams — separate from the imported legacy maps.
+          Create one by hand, copy an imported map, or import an Excel file
+          (sheets “Nodes” and “Links”; X/Y coordinates are optional — nodes without coordinates are
+          placed on an automatic grid). Nodes whose IP matches a monitored device show its live status.</p>
+          <div class="cols3">
+            <div class="subpanel">
+              <h3>Create manually</h3>
+              <form id="topo-create-form" class="inline-form admin-only">
+                <input name="name" placeholder="Topology name" required>
+                <button>Create Empty Topology</button>
+              </form>
+            </div>
+            <div class="subpanel">
+              <h3>From an imported map</h3>
+              <form id="topo-frommap-form" class="inline-form admin-only">
+                <select id="topo-map-select"></select>
+                <button>Copy Map to Topology</button>
+              </form>
+              <p class="muted">Nodes are copied with their positions, and links are reconstructed from the
+              lines drawn on the map: each line's endpoints are matched to the nearest device icons. The
+              source database records no port-to-port links, so the editor labels these links as reconstructed.</p>
+            </div>
+            <div class="subpanel">
+              <h3>From Excel</h3>
+              <form id="topo-import-form" class="inline-form admin-only">
+                <input name="name" placeholder="Topology name">
+                <input type="file" id="topo-file" accept=".xlsx" required>
+                <button>Import Excel</button>
+              </form>
+              <p class="muted"><a href="/api/topology/template.xlsx">⬇ Download the Excel template</a> — fill in the Nodes and Links sheets and import it back.</p>
+            </div>
+          </div>
+          <div id="topo-msg" class="muted"></div>
+          <div class="subpanel">
+            <h3>Discovered Links — LLDP / CDP / bridge FDB</h3>
+            <p class="muted">NetGold walks every SNMP device's neighbour tables (LLDP and CDP, plus the
+            bridge forwarding database — the same correlation classic Layer-2 topology tools use) and
+            finds the real port-to-port links between your monitored devices. ARP data is used only to
+            resolve neighbour identities, never as link evidence by itself.</p>
+            <div class="inline-form">
+              <button id="links-run-btn" class="admin-only">Run Link Discovery</button>
+              <button id="links-topo-btn" class="admin-only">Build Topology from Discovered Links</button>
+              <span id="links-status" class="muted"></span>
+            </div>
+            <table id="links-table"><thead><tr><th>Device A</th><th>Port A</th><th>Device B</th><th>Port B</th><th>Found via</th><th>Confidence</th><th>Last seen</th></tr></thead><tbody></tbody></table>
+          </div>
+          <h3>Your topologies</h3>
+          <div class="inline-form">
+            <button id="topo-rebuild-auto-btn" class="admin-only" title="Regenerate the automatic topologies (the hub topology and the combined two-map topology) from the current data">Rebuild Automatic Topologies</button>
+          </div>
+          <table id="topo-table"><thead><tr><th>Name</th><th>Source</th><th>Nodes</th><th>Links</th><th>Created</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- TOPOLOGY EDITOR -->
+      <section id="view-topoeditor" class="view hidden">
+        <button id="topo-back-btn">← Back to Topologies</button>
+        <div class="panel">
+          <div class="inline-form">
+            <input id="topo-name" size="34">
+            <button id="topo-rename-btn" class="admin-only">Rename</button>
+            <button id="topo-addnode-btn" class="admin-only">Add Node</button>
+            <button id="topo-linkmode-btn" class="admin-only">Add Link: Off</button>
+            <button id="topo-refresh-btn">Refresh Status</button>
+            <button type="button" id="topo-tidy-btn" title="Arrange the nodes so that no marker or label overlaps another. The stored positions are not changed — switch it off to return to the saved layout.">Tidy View: Off</button>
+            <button type="button" id="topo-theme-btn">Dark Canvas</button>
+            <a id="topo-export-link" href="#">⬇ Export Excel</a>
+            <span id="topo-editor-msg" class="muted"></span>
+          </div>
+          <p class="muted">Drag nodes to move them (positions save automatically). Click a node to select and
+          edit it below. With “Add Link” on, click two nodes to link them. Click a link to delete it.
+          “Tidy View” rearranges the drawing on screen only — no marker or label overlaps another, and the
+          saved positions are never changed by it.
+          Each node shows its device-type icon on the same status marker as the Maps page — a green
+          diamond plate while up, a red diamond with a × badge while down, amber while unknown; links flow green
+          while the path is up and pulse red when a device on them goes down. Double-click a node that
+          is linked to a monitored device (or use Open Device below) to open that device.</p>
+          <p id="topo-desc" class="muted hidden"></p>
+          <p id="topo-origin-note" class="muted hidden"></p>
+          <div id="topo-wrap" class="mapwrap canvas-light"></div>
+          <form id="topo-node-form" class="inline-form hidden admin-only">
+            <b id="topo-node-title">Node</b>
+            <input name="label" placeholder="Label" required>
+            <input name="ip" placeholder="IP (links to a monitored device)">
+            <input name="type" placeholder="Type (router, switch, …)">
+            <input name="group_name" placeholder="Group">
+            <button>Save Node</button>
+            <button type="button" id="topo-node-open" class="hidden">Open Device</button>
+            <button type="button" id="topo-node-del">Delete Node</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- TRAFFIC -->
+      <section id="view-traffic" class="view hidden">
+        <div class="panel">
+          <h2>Traffic — NetFlow / sFlow</h2>
+          <p class="muted">Flow data from your routers and switches. Point NetFlow v5/v9 or IPFIX exporters
+          at this computer on UDP <b>2055</b> and sFlow agents on UDP <b>6343</b> (ports are set with the
+          <code>-netflow-port</code> / <code>-sflow-port</code> flags; 0 disables a collector).
+          NetGold stores 1-minute aggregates only — never every raw flow.</p>
+          <div class="inline-form">
+            <span>Range:</span>
+            <button data-trange="1h" class="rbtn trbtn active">1h</button>
+            <button data-trange="6h" class="rbtn trbtn">6h</button>
+            <button data-trange="24h" class="rbtn trbtn">24h</button>
+            <button data-trange="7d" class="rbtn trbtn">7d</button>
+            <button id="traffic-refresh">Refresh</button>
+            <span id="traffic-status" class="muted"></span>
+          </div>
+          <div class="cards">
+            <div class="card"><h3>Total Traffic</h3><div class="big" id="traffic-total">–</div></div>
+            <div class="card"><h3>Packets</h3><div class="big" id="traffic-packets">–</div></div>
+          </div>
+          <div class="panel"><h3>Traffic over time (bytes)</h3><div id="chart-traffic" class="chart"></div></div>
+          <div class="cols">
+            <div class="panel"><h3>Top Sources</h3><table id="traffic-src"><thead><tr><th>Source</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table></div>
+            <div class="panel"><h3>Top Destinations</h3><table id="traffic-dst"><thead><tr><th>Destination</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table></div>
+          </div>
+          <div class="cols">
+            <div class="panel"><h3>Top Conversations</h3><table id="traffic-conv"><thead><tr><th>Source</th><th>Destination</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table></div>
+            <div class="panel"><h3>Top Ports / Protocols / Exporters</h3>
+              <table id="traffic-port"><thead><tr><th>Port</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table>
+              <table id="traffic-proto"><thead><tr><th>Protocol</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table>
+              <table id="traffic-exporter"><thead><tr><th>Exporter</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Live Flows (most recent)</h3>
+            <table id="traffic-recent"><thead><tr><th>Time</th><th>Exporter</th><th>Source</th><th>Destination</th><th>Port</th><th>Protocol</th><th>Bytes</th><th>Packets</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOGS -->
+      <section id="view-logs" class="view hidden">
+        <div class="panel">
+          <h2>Logs — Syslog</h2>
+          <p class="muted">Syslog messages received on UDP+TCP port <b id="logs-port">5514</b>
+          (set with the <code>-syslog-port</code> flag; use 514 in service mode for the standard port).
+          Both RFC 3164 and RFC 5424 formats are understood.</p>
+          <div class="cards" id="logs-cards"></div>
+          <form id="logs-form" class="inline-form">
+            <input name="q" placeholder="Search text (message, host, app)">
+            <input name="source" placeholder="Source IP or hostname">
+            <select name="severity">
+              <option value="">Any severity</option>
+              <option value="0">emerg</option><option value="1">alert</option><option value="2">crit</option>
+              <option value="3">err</option><option value="4">warning</option><option value="5">notice</option>
+              <option value="6">info</option><option value="7">debug</option>
+            </select>
+            <select name="range">
+              <option value="1h">Last 1h</option><option value="6h">Last 6h</option>
+              <option value="24h" selected>Last 24h</option><option value="7d">Last 7d</option><option value="30d">Last 30d</option>
+            </select>
+            <button>Search</button>
+            <label><input type="checkbox" id="logs-auto" checked> Auto-refresh</label>
+          </form>
+          <table id="logs-table"><thead><tr><th>Time</th><th>Source</th><th>Host</th><th>Severity</th><th>App</th><th>Message</th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section id="view-reports" class="view hidden">
+        <div class="panel">
+          <h2>Link Downtime Report</h2>
+          <p class="muted">Downtime per device / link, calculated from NetGold's up/down event history.
+          A monitored link or site is a device entry (as in the legacy system); diagram lines are drawings
+          without their own monitoring, so they are not separate rows in this report.</p>
+          <div class="inline-form" id="rep-presets">
+            <button data-preset="today">Today</button>
+            <button data-preset="yesterday">Yesterday</button>
+            <button data-preset="7d" class="active">Last 7 Days</button>
+            <button data-preset="30d">Last 30 Days</button>
+            <button data-preset="custom">Custom</button>
+            <span id="rep-custom" class="hidden">
+              <input type="datetime-local" id="rep-from"> to <input type="datetime-local" id="rep-to">
+              <button id="rep-apply">Apply</button>
+            </span>
+          </div>
+          <p id="rep-meta" class="muted"></p>
+          <div class="inline-form">
+            <button id="rep-xlsx">⬇ Download Excel</button>
+            <button id="rep-pdf">⬇ Download PDF</button>
+          </div>
+          <h3>Summary — worst downtime first</h3>
+          <table id="rep-summary"><thead><tr><th>Device</th><th>Group</th><th>IP</th><th>Outages</th><th>Total Downtime</th><th>Longest Outage</th><th>Uptime %</th><th>Now</th></tr></thead><tbody></tbody></table>
+          <h3>Outage details</h3>
+          <table id="rep-details"><thead><tr><th>Device</th><th>Group</th><th>IP</th><th>Down Since</th><th>Up At</th><th>Duration</th><th>Status</th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- ALARMS -->
+      <section id="view-alarms" class="view hidden">
+        <div class="panel">
+          <h2>🚨 Alarms</h2>
+          <p class="muted">Outages and recoveries from the event history, newest first. Ongoing outages show
+          legacy-style escalation labels (Down, Down at least 2 min, Down at least 5 min, Down at least 20 min)
+          as they age. Acknowledge silences the siren for an outage.</p>
+          <div id="alarms-page"></div>
+        </div>
+        <div class="panel">
+          <h2>All Recent Events</h2>
+          <div id="alarms-events"></div>
+        </div>
+      </section>
+
+      <!-- DISCOVER -->
+      <section id="view-discover" class="view hidden">
+        <div class="panel">
+          <h2>Subnet Auto-Discovery</h2>
+          <p class="muted">Ping sweep + SNMP probe of a whole subnet (max /22). Found devices can be added in one click.</p>
+          <form id="discover-form" class="inline-form admin-only">
+            <input name="cidr" placeholder="192.168.1.0/24" required>
+            <input name="community" placeholder="SNMP community" value="public">
+            <button>Scan Subnet</button>
+          </form>
+          <div id="discover-status" class="muted"></div>
+          <table id="found-table"><thead><tr><th>IP</th><th>Latency</th><th>SNMP</th><th>sysName</th><th>sysDescr</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- IMPORT -->
+      <section id="view-import" class="view hidden">
+        <h2 style="margin:4px 0 12px">Legacy Database Import</h2>
+        <p class="viewer-note">You are signed in with read-only (viewer) access. Importing changes
+        NetGold's data, so the import controls are available to administrators only.</p>
+        <div class="panel">
+          <h2>Direct Import — Recommended</h2>
+          <p class="muted">Nothing to type. NetGold looks for the legacy system's SQL Server on <b>this computer</b>,
+          signs in by itself, and shows you the import preview. Imports groups, devices, interfaces, monitor
+          assignments (Ping/Telnet/HTTP/FTP/SNMP) and the network maps/diagrams — devices keep their exact
+          positions from the legacy system's maps.</p>
+          <button id="legacy-detect-btn" class="admin-only">Find the legacy system on this computer</button>
+          <div id="legacy-detect-list" style="margin-top:10px"></div>
+          <div id="legacy-auto-actions" class="hidden admin-only" style="margin-top:10px">
+            <button id="legacy-auto-import-btn">Import Now</button>
+            <span class="muted">Imports everything shown in the preview below.</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Import from a Backup File (.bak)</h2>
+          <p class="muted">Have a backup of the legacy database instead? Type or paste the <b>full path</b> of the
+          .bak file (a browser file picker cannot share real paths, so there is deliberately no picker here).
+          NetGold restores the backup into a temporary database on a SQL Server, imports from it, and deletes
+          the temporary database again.</p>
+          <p class="muted"><b>Important:</b> the backup file path must be a path <b>on the SQL Server computer</b>
+          (or a UNC share the SQL Server service can read) — the SQL Server opens the file, not your browser.</p>
+          <form id="legacy-bak-form" class="inline-form admin-only">
+            <input id="legacy-bak-path" placeholder="Full path, e.g. C:\Backups\database.bak" size="52">
+            <select id="legacy-bak-instance"><option value="">Automatic — first SQL Server found</option></select>
+          </form>
+          <p class="muted" style="margin-top:12px"><b>Optional — specify the SQL Server yourself</b> (leave the
+          server blank to use automatic detection):</p>
+          <form id="legacy-bak-manual-form" class="inline-form admin-only">
+            <input id="legacy-bak-server" placeholder="Server, e.g. SRV\INSTANCE or DB-SERVER,1433" size="36">
+            <select id="legacy-bak-auth">
+              <option value="windows">Windows Authentication</option>
+              <option value="sql">SQL Server Authentication</option>
+            </select>
+            <input id="legacy-bak-user" placeholder="SQL user (SQL auth only)">
+            <input id="legacy-bak-password" type="password" placeholder="Password">
+          </form>
+          <p class="muted">If the instance uses a dynamic port and the SQL Browser service is stopped, enter the
+          server as <b>HOST,PORT</b> rather than HOST\INSTANCE.</p>
+          <button id="legacy-bak-btn" class="admin-only">Import Backup</button>
+          <p class="muted">A backup file can only be opened by a SQL Server engine — NetGold uses the SQL Server
+          already on this computer (the one the legacy system installed, or any other local instance), or the server
+          you specify above.</p>
+          <p id="legacy-engine-status" class="muted" style="margin-top:12px">SQL engine: checking…</p>
+          <div id="legacy-engine-panel" class="hidden admin-only" style="margin-top:12px">
+            <h3 style="margin-top:0">Automatic Engine Setup</h3>
+            <p id="legacy-engine-text" class="muted"></p>
+            <button id="legacy-engine-btn">Set Up Engine and Import</button>
+            <button id="legacy-engine-repair" class="hidden">Repair and Retry</button>
+            <ul id="legacy-engine-steps" style="margin-top:10px"></ul>
+            <p id="legacy-engine-note" class="muted"></p>
+            <button id="legacy-engine-remove" class="hidden">Remove Engine Instance</button>
+            <button id="legacy-engine-repair-manual">Repair SQL Engine</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Advanced — Connect Manually</h2>
+          <p class="muted">Connect live to the legacy system's SQL Server yourself — for example on another computer.
+          Enter the name of the legacy database on that server. <b>Note:</b> SNMP credentials are encrypted inside
+          the legacy database and cannot be imported — the import report will list the devices where you need to re-enter
+          the community once.</p>
+          <form id="legacy-form" class="inline-form admin-only">
+            <input name="server" placeholder="SQL Server host (e.g. DB-SERVER)" required>
+            <input name="instance" placeholder="Instance (e.g. SQLEXPRESS) — optional">
+            <input name="database" placeholder="Database name (required)">
+            <input name="user" placeholder="SQL user (blank = Windows Auth)">
+            <input name="password" type="password" placeholder="Password">
+            <label><input type="checkbox" name="windows_auth"> Windows Auth</label>
+          </form>
+          <button id="legacy-preview-btn" class="admin-only">1) Preview</button>
+          <button id="legacy-import-btn" class="admin-only">2) Import</button>
+        </div>
+        <div class="panel">
+          <h3 style="margin-top:0">Result</h3>
+          <pre id="legacy-result" class="result"></pre>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="view-settings" class="view hidden">
+        <div class="panel">
+          <h2>Email Alerts (SMTP)</h2>
+          <p class="muted">NetGold can email you when a device goes down and when it recovers (the recovery
+          email states how long it was down). Settings are stored only in NetGold's local database on this
+          computer; the password is never shown again in full after saving.</p>
+          <form id="email-form" class="admin-only">
+            <div class="formgrid">
+              <label><input type="checkbox" name="enabled"> Enable email alerts</label>
+              <span></span>
+              <label>SMTP host <input name="smtp_host" placeholder="smtp.example.com"></label>
+              <label>Port <input name="smtp_port" type="number" value="587"></label>
+              <label>TLS mode
+                <select name="tls_mode">
+                  <option value="starttls">STARTTLS</option>
+                  <option value="tls">TLS (direct)</option>
+                  <option value="none">None (plain)</option>
+                </select>
+              </label>
+              <label>Username <input name="username" placeholder="(optional)"></label>
+              <label>Password <input name="password" type="password" placeholder="Stored password stays if untouched"></label>
+              <label>From address <input name="from" placeholder="alerts@example.com"></label>
+              <label>Send to (comma-separated) <input name="to" placeholder="noc@example.com, admin@example.com"></label>
+              <label><input type="checkbox" name="on_down" checked> Email when a device goes DOWN</label>
+              <label><input type="checkbox" name="on_up"> Email when a device recovers (UP)</label>
+            </div>
+            <div class="inline-form">
+              <button>Save Email Settings</button>
+              <button type="button" id="email-test-btn">Send Test Email</button>
+              <span id="email-msg" class="muted"></span>
+            </div>
+          </form>
+        </div>
+        <div class="panel admin-only" id="access-panel">
+          <h2>User Access</h2>
+          <p class="muted">The portal asks everyone to sign in. There are two kinds of access:
+          the <b>administrator</b> (sign-in ID <code>admin</code>) can view and change everything, and a
+          <b>viewer</b> sign-in that is read-only — viewers can open every page, download reports and
+          view timelines, but cannot change anything. All viewers share ONE sign-in ID and password,
+          which only the administrator can set here. Passwords are stored hashed, never in plain text,
+          and are never shown again.</p>
+          <h3>Viewer sign-in (shared, read-only)</h3>
+          <p class="muted" id="access-viewer-status">Viewer access: checking…</p>
+          <form id="access-viewer-form" class="inline-form">
+            <input name="viewer_id" id="access-viewer-id" placeholder="Viewer sign-in ID (e.g. noc-view)" autocomplete="off">
+            <input name="viewer_password" type="password" placeholder="New viewer password (blank = keep current)" autocomplete="new-password">
+            <button>Save Viewer Sign-in</button>
+            <button type="button" id="access-viewer-disable">Disable Viewer Access</button>
+            <span id="access-viewer-msg" class="muted"></span>
+          </form>
+          <h3>Administrator password</h3>
+          <form id="access-admin-form" class="inline-form">
+            <input name="current_password" type="password" placeholder="Current admin password" autocomplete="current-password">
+            <input name="new_password" type="password" placeholder="New admin password" autocomplete="new-password">
+            <button>Change Admin Password</button>
+            <span id="access-admin-msg" class="muted"></span>
+          </form>
+          <p class="muted">Anyone opening this portal from another computer on your network must sign in
+          first. If Windows Firewall asks whether NetGold may accept connections on your private network,
+          allow it — that prompt is what lets other PCs on the LAN reach the portal.</p>
+        </div>
+        <div class="panel">
+          <h2>Traffic &amp; Log Collectors</h2>
+          <p class="muted">NetFlow v5/v9 + IPFIX arrive on UDP <code>-netflow-port</code> (default 2055),
+          sFlow on UDP <code>-sflow-port</code> (default 6343), syslog on UDP+TCP <code>-syslog-port</code>
+          (default 5514; 0 disables any of them). Flow data is aggregated into 1-minute buckets and kept
+          90 days, like the polling samples. On Windows, <code>netgold -service install</code> installs
+          NetGold as an automatic Windows service so monitoring continues with no window open; on Linux
+          the shipped <code>netgold.service</code> systemd unit does the same.</p>
+        </div>
+        <div class="panel">
+          <h2>Monitoring Defaults</h2>
+          <p class="muted">Aligned with the legacy system: poll interval default 60 s (allowed range 10 s – 24 h,
+          set with the <code>-interval</code> flag); Ping timeout 1 s, 1 retry, 32-byte payload; SNMP timeout
+          2 s, 1 retry; TCP service monitors timeout 5 s. Each service monitor can override its own interval,
+          timeout and retries on the device page.</p>
+        </div>
+      </section>
+
+      <!-- ABOUT -->
+      <section id="view-about" class="view hidden">
+        <div class="panel about">
+          <div class="logo big-logo">🛰️ NetGold <span>Monitor</span></div>
+          <p class="ver">Version __NETGOLD_VERSION__</p>
+          <p class="credit">Developed by <b>Shivam Bhalla</b></p>
+          <p>NetGold Monitor is a free and open-source network monitoring tool for IT professionals:
+          ping and SNMP monitoring, service checks, bandwidth graphs, network maps,
+          downtime reports and alerts — in a single file, with no runtime or database server to install.</p>
+          <p><b>Licence:</b> MIT — free to use, copy, modify and share; see the LICENSE file in the source package.</p>
+          <p><b>Technology:</b> one single-file program written in Go with an embedded web dashboard and
+          SQLite storage. Runs on Windows and Linux; everything works offline, no external services are contacted.</p>
+          <p><b>Links:</b> <a href="#">GitHub repository</a> (link to be added when the project is published).</p>
+        </div>
+      </section>
+    </main>
+    <footer class="muted">NetGold Monitor — Developed by Shivam Bhalla</footer>
+  </div>
+</div>
+<div id="toasts" aria-live="assertive"></div>
+<script src="uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

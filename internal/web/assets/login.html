@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — NetGold Monitor</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #0a0e14; --surface: #141a22; --surface2: #1a212c; --border: #1e2530;
+    --gold: #d4a017; --gold-bright: #f2c230; --text: #e8edf2; --muted: #8a97a5;
+    --err: #e74c3c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; min-height: 100vh;
+    display: flex; flex-direction: column; }
+  .brandbar { display: flex; align-items: center; gap: 14px; padding: 12px 20px;
+    background: var(--surface); border-bottom: 2px solid var(--gold); }
+  .brandbar .logo { font-size: 21px; font-weight: 700; letter-spacing: .2px; white-space: nowrap; }
+  .brandbar .logo span { color: var(--gold-bright); }
+  .brandbar .credit { margin-left: auto; color: var(--muted); font-size: 12.5px; text-align: right; }
+  .brandbar .credit b { color: var(--text); font-weight: 600; }
+  .wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 28px 16px; }
+  .card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px 28px 22px; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+  .card h1 { font-size: 20px; margin: 0 0 6px; }
+  .card p.sub { color: var(--muted); font-size: 13.5px; margin: 0 0 18px; line-height: 1.45; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 5px; }
+  input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 14.5px; outline: none; }
+  input:focus { border-color: var(--gold); }
+  button { width: 100%; margin-top: 20px; padding: 11px 12px; border: 0; border-radius: 8px;
+    background: var(--gold); color: #14100a; font-size: 15px; font-weight: 700; cursor: pointer; }
+  button:hover { background: var(--gold-bright); }
+  button:disabled { opacity: .55; cursor: wait; }
+  .err { display: none; margin-top: 14px; padding: 9px 12px; border-radius: 8px; font-size: 13.5px;
+    background: rgba(231,76,60,.14); border: 1px solid rgba(231,76,60,.5); color: #ff9d94; }
+  .note { margin-top: 16px; font-size: 12.5px; color: var(--muted); line-height: 1.5;
+    border-top: 1px solid var(--border); padding-top: 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <header class="brandbar">
+    <div class="logo">🛰️ NetGold <span>Monitor</span></div>
+    <div class="credit">NetGold Monitor v__NETGOLD_VERSION__ — Developed by <b>Shivam Bhalla</b></div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <!-- First run: no administrator password exists yet. Shown once,
+           until the password is created; never again after that. -->
+      <form id="setup-form" class="hidden" autocomplete="off">
+        <h1>Welcome to NetGold Monitor</h1>
+        <p class="sub">This is the first sign-in on this installation. Create the
+          administrator password now — the administrator is the only account that
+          can change settings and manage access for everyone else.</p>
+        <label for="setup-password">Administrator password</label>
+        <input type="password" id="setup-password" autocomplete="new-password" required>
+        <label for="setup-confirm">Type it again</label>
+        <input type="password" id="setup-confirm" autocomplete="new-password" required>
+        <button type="submit" id="setup-btn">Create the admin password</button>
+        <div class="err" id="setup-err"></div>
+      </form>
+
+      <!-- Normal sign-in. -->
+      <form id="login-form" class="hidden" autocomplete="off">
+        <h1>Sign in</h1>
+        <p class="sub">Enter your sign-in ID and password to open the monitoring portal.</p>
+        <label for="login-id">Sign-in ID</label>
+        <input type="text" id="login-id" autocomplete="username" required>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" autocomplete="current-password" required>
+        <button type="submit" id="login-btn">Sign in</button>
+        <div class="err" id="login-err"></div>
+        <div class="note hidden" id="viewer-note">Viewer access is not enabled yet. The
+          administrator can enable it in Settings &rarr; User Access after signing in.</div>
+      </form>
+
+      <p class="sub hidden" id="loading-note">Loading&hellip;</p>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function showErr(id, msg) {
+    var el = $(id);
+    el.textContent = msg;
+    el.style.display = msg ? "block" : "none";
+  }
+
+  function post(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {})
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || ("Request failed (" + r.status + ")"));
+        return data;
+      });
+    });
+  }
+
+  // Already signed in? Go straight to the portal.
+  fetch("/api/auth/me").then(function (r) {
+    if (r.ok) { window.location.replace("/"); return null; }
+    return fetch("/api/auth/status").then(function (r2) { return r2.json(); });
+  }).then(function (st) {
+    if (!st) return; // redirected above
+    $("loading-note").classList.add("hidden");
+    if (!st.admin_configured) {
+      $("setup-form").classList.remove("hidden");
+      $("setup-password").focus();
+    } else {
+      $("login-form").classList.remove("hidden");
+      if (!st.viewer_configured) $("viewer-note").classList.remove("hidden");
+      $("login-id").focus();
+    }
+  }).catch(function () {
+    $("loading-note").textContent = "Could not reach the NetGold server. Is the program running?";
+  });
+
+  $("setup-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    showErr("setup-err", "");
+    var pw = $("setup-password").value, cf = $("setup-confirm").value;
+    if (pw.length < 6) { showErr("setup-err", "Choose a password of at least 6 characters."); return; }
+    if (pw !== cf) { showErr("setup-err", "The two passwords do not match."); return; }
+    $("setup-btn").disabled = true;
+    post("/api/auth/setup", { password: pw }).then(function () {
+      window.location.replace("/");
+    }).catch(function (e) {
+      $("setup-btn").disabled = false;
+      showErr("setup-err", e.message);
+    });
+  });
+
+  $("login-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    showErr("login-err", "");
+    $("login-btn").disabled = true;
+    post("/api/auth/login", { id: $("login-id").value, password: $("login-password").value }).then(function () {
+      window.location.replace("/");
+    }).catch(function (e) {
+      $("login-btn").disabled = false;
+      showErr("login-err", e.message);
+    });
+  });
+})();
+</script>
+</body>
+</html>

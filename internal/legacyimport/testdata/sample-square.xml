@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<Square>
+	<Object>Square</Object>
+	<Envelope>
+		<Primary>
+			<X>239.44317627</X>
+			<Y>-415.00280762</Y>
+		</Primary>
+		<Secondary>
+			<X>239.44317627</X>
+			<Y>-287.00280762</Y>
+		</Secondary>
+	</Envelope>
+	<Width>1</Width>
+	<BaseColor>0x00000000</BaseColor>
+	<Shadow>0</Shadow>
+	<PositionLocked>true</PositionLocked>
+	<ZOrder>0</ZOrder>
+	<FillColor>0x00DCFFFF</FillColor>
+	<Filled>1</Filled>
+	<Rounded>0</Rounded>
+</Square>

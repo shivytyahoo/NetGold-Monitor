@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Device>
+	<Object>Device</Object>
+	<Envelope>
+		<Primary>
+			<X>-77.31567383</X>
+			<Y>-9.43395996</Y>
+		</Primary>
+		<Secondary>
+			<X>-2.24206543</X>
+			<Y>65.63964844</Y>
+		</Secondary>
+	</Envelope>
+	<Width>1</Width>
+	<BaseColor>0x00000000</BaseColor>
+	<Shadow>0</Shadow>
+	<PositionLocked>false</PositionLocked>
+	<ZOrder>51</ZOrder>
+	<LocationX>-39.77886963</LocationX>
+	<LocationY>28.10284424</LocationY>
+	<DimensionX>75.07360840</DimensionX>
+	<DimensionY>75.07360840</DimensionY>
+	<Relayout>false</Relayout>
+	<Connections>
+	</Connections>
+	<Monitors>
+		<Monitor>
+			<nID>6</nID>
+			<Name>Ping</Name>
+			<Comment/>
+			<Links>
+			</Links>
+		</Monitor>
+	</Monitors>
+</Device>

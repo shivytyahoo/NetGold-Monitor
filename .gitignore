@@ -1,0 +1,25 @@
+# NetGold local data and build output
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Built binaries and release packages
+dist/
+
+# Local legacy-system study material (database backups, installer
+# extracts, SQL Server data files, credentials) — never commit these.
+# (Character classes are used so this file does not itself carry the
+# folder names.)
+wu[g]-db/
+wu[g]-program/
+demo-shots/
+*.bak
+.sa_password
+
+# Editor / OS noise
+*.tmp
+.DS_Store
+Thumbs.db
+build-cache/
