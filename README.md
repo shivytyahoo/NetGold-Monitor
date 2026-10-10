@@ -1,4 +1,15 @@
-# NetGold Monitor
+<p align="center">
+  <img src="docs/images/logo.png" alt="NetGold Monitor logo" width="140">
+</p>
+
+<h1 align="center">NetGold Monitor</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-DAA520" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Version-3.6.1-2F7F4F" alt="Version 3.6.1">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-555555" alt="Platforms: Windows, Linux and macOS">
+  <img src="https://img.shields.io/badge/Built%20with-Go-00ADD8" alt="Built with Go">
+</p>
 
 **Free, open-source network monitoring for IT professionals** — ping, SNMP
 v2c/v3 and service monitoring, MRTG-style bandwidth graphs, network maps
