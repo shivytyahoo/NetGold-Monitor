@@ -188,6 +188,30 @@ svg.labels-compact .lbl-full { display: none; }
 /* One-time expanding ring when a device has just gone down. */
 .ring-once { fill: none; stroke: var(--down); stroke-width: 3; pointer-events: none; transform-box: fill-box; transform-origin: center; animation: ringOnce 1.4s ease-out forwards; }
 @keyframes ringOnce { from { opacity: .95; transform: scale(0.45); } to { opacity: 0; transform: scale(1.7); } }
+/* Map Edit Mode (v3.7): the administrator's editing panel above
+   the canvas, the selection panel inside it, and the canvas
+   affordances while editing (draggable markers, clickable lines,
+   a highlighted selection). */
+.map-edit-panel { background: rgba(212,160,23,.08); border: 1px solid var(--gold); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.map-edit-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.map-edit-head b { color: var(--gold-bright); font-size: 15px; white-space: nowrap; }
+.map-edit-head .muted { flex: 1; min-width: 260px; }
+.map-edit-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.map-edit-tools { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.map-edit-tools button.active, #map-edit-btn.active { background: var(--gold); color: #14202f; font-weight: 700; }
+.map-edit-new { margin-top: 10px; }
+.map-edit-new summary { cursor: pointer; color: var(--gold-bright); font-size: 13.5px; }
+.map-edit-new form { margin-top: 8px; }
+.map-sel-panel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; background: rgba(10,16,24,.55); border: 1px solid var(--border-strong); border-radius: 8px; padding: 9px 12px; }
+.map-sel-panel .sel-name { font-weight: 700; }
+.mapwrap.editing #map-svg { cursor: default; }
+.mapwrap.editing .map-dev { cursor: grab; }
+.mapwrap.editing .map-dev:active { cursor: grabbing; }
+.mapwrap.editing .map-line { cursor: pointer; pointer-events: stroke; }
+.mapwrap.editing .map-line:hover { stroke: var(--gold-bright); }
+.map-line.map-line-selected { stroke: #ff9f1a !important; stroke-width: 5px; }
+.map-dev.map-dev-selected .dev-glow { stroke: #ff9f1a; fill: rgba(255,159,26,.28); opacity: 1; animation: none; }
+.map-dev.map-link-first .dev-glow { stroke: var(--gold-bright); fill: rgba(242,194,48,.30); opacity: 1; animation: none; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 10px; }
 .legend-title { font-weight: 700; color: var(--text); margin-right: 2px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; background: rgba(120,160,220,.07); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px 3px 6px; font-size: 12px; color: var(--text); }

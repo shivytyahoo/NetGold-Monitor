@@ -19,7 +19,7 @@ Unicode true
 SetCompressor lzma
 
 !define APPNAME "NetGold Monitor"
-!define APPVERSION "3.6.1"
+!define APPVERSION "3.7.0"
 !define PUBLISHER "Shivam Bhalla"
 !define EXENAME "NetGoldMonitor.exe"
 !define ARPKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoldMonitor"
@@ -32,22 +32,22 @@ InstallDirRegKey HKLM "Software\NetGold Monitor" "InstallLocation"
 RequestExecutionLevel admin
 BrandingText "NetGold Monitor — Developed by ${PUBLISHER}"
 
-VIProductVersion "3.6.1.0"
+VIProductVersion "3.7.0.0"
 VIAddVersionKey "ProductName" "NetGold Monitor"
-VIAddVersionKey "ProductVersion" "3.6.1"
-VIAddVersionKey "FileVersion" "3.6.1"
+VIAddVersionKey "ProductVersion" "3.7.0"
+VIAddVersionKey "FileVersion" "3.7.0"
 VIAddVersionKey "CompanyName" "Shivam Bhalla"
 VIAddVersionKey "Publisher" "Shivam Bhalla"
 VIAddVersionKey "FileDescription" "NetGold Monitor Setup"
 VIAddVersionKey "LegalCopyright" "Copyright (c) 2026 Shivam Bhalla"
-VIAddVersionKey "OriginalFilename" "NetGold-Monitor-Setup-v3.6.1.exe"
+VIAddVersionKey "OriginalFilename" "NetGold-Monitor-Setup-v3.7.0.exe"
 
 !include "MUI2.nsh"
 
 !define MUI_ICON "..\branding\netgold.ico"
 !define MUI_UNICON "..\branding\netgold.ico"
 !define MUI_WELCOMEPAGE_TITLE "Welcome to NetGold Monitor Setup"
-!define MUI_WELCOMEPAGE_TEXT "This will install NetGold Monitor 3.6.1 on your computer.$\r$\n$\r$\nNetGold Monitor is a free, open-source network monitoring program (ping, SNMP, bandwidth graphs, NetFlow, syslog and legacy database import), developed by Shivam Bhalla.$\r$\n$\r$\nThe setup also carries Microsoft's SQL Server LocalDB installer, so importing the legacy system backup file (.bak) works even without an internet connection.$\r$\n$\r$\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "This will install NetGold Monitor 3.7.0 on your computer.$\r$\n$\r$\nNetGold Monitor is a free, open-source network monitoring program (ping, SNMP, bandwidth graphs, NetFlow, syslog and legacy database import), developed by Shivam Bhalla.$\r$\n$\r$\nThe setup also carries Microsoft's SQL Server LocalDB installer, so importing the legacy system backup file (.bak) works even without an internet connection.$\r$\n$\r$\nClick Next to continue."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXENAME}"
 !define MUI_FINISHPAGE_RUN_TEXT "Run NetGold Monitor"
 !define MUI_FINISHPAGE_TEXT "NetGold Monitor has been installed.$\r$\n$\r$\nThe program runs quietly in the system tray — no console window. It opens in your browser when it starts, and you can reopen it or exit it from its tray icon at any time."
@@ -118,7 +118,7 @@ Section "NetGold Monitor program" SecMain
 
   ; Add/Remove Programs entry.
   WriteRegStr HKLM "${ARPKEY}" "DisplayName" "NetGold Monitor"
-  WriteRegStr HKLM "${ARPKEY}" "DisplayVersion" "3.6.1"
+  WriteRegStr HKLM "${ARPKEY}" "DisplayVersion" "3.7.0"
   WriteRegStr HKLM "${ARPKEY}" "Publisher" "Shivam Bhalla"
   WriteRegStr HKLM "${ARPKEY}" "DisplayIcon" "$INSTDIR\${EXENAME}"
   WriteRegStr HKLM "${ARPKEY}" "UninstallString" "$INSTDIR\Uninstall.exe"

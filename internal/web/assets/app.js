@@ -1682,6 +1682,8 @@ $('#map-tree-show') && ($('#map-tree-show').onclick = () => {
 });
 let currentMapId = null;
 let currentMapObjects = []; // last fetched objects of the open map (hover cards, refresh)
+let currentMapMeta = null;  // the open map's record (stored extents), set by renderMap
+let mapScene = null;        // padded scene origin of the last render: scene x = stored x - minX, scene y = maxY - stored y
 let mapVB = null;   // current viewBox {x, y, w, h}
 let mapFit = null;  // fitted viewBox
 const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2478,6 +2480,8 @@ async function renderMap(id) {
     }
   }
   minX -= padSide; maxX += padSide; minY -= padBottom; maxY += padTop;
+  mapScene = { minX, maxY };
+  currentMapMeta = map;
   const W = maxX - minX, H = maxY - minY;
   const X = x => (x - minX);
   const Y = y => (maxY - y); // legacy's Y grows upward; SVG's grows downward
@@ -2777,27 +2781,27 @@ async function renderMap(id) {
       // scale, so they occupy exactly the grid cell the layout
       // reserved — no counter-scaling, no compact variant.
       const tr = `translate(${F(j.cx)},${F(j.cy)}) scale(${sceneK.toFixed(5)})`;
-      dpM += `<g class="map-dev st-${st}" data-mapdev="${o.device_id || ''}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}" data-st="${st}">` +
+      dpM += `<g class="map-dev st-${st}" data-mapdev="${o.device_id || ''}" data-mapobj="${o.id}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}" data-st="${st}">` +
            `<title>${esc(j.label)}${o.device_ip ? ' · ' + esc(o.device_ip) : ''}${o.device_type ? ' · ' + esc(o.device_type) : ''} · ${esc(st)}</title>` +
            `<g class="dev-scene" transform="${tr}">` +
            `<circle class="dev-glow" r="30"/>` +
            `<g class="dev-plate">${markerSVG(st)}</g>` +
            iconUseIn(o.icon_id, DEV_GLYPH_PX) +
            `</g></g>`;
-      dpL += `<g class="map-dev-lbl" data-mapdev="${o.device_id || ''}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}">` +
+      dpL += `<g class="map-dev-lbl" data-mapdev="${o.device_id || ''}" data-mapobj="${o.id}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}">` +
            `<g class="dev-scene" transform="${tr}">` +
            labelPill(j.lines, j.caption, 'map-lbl', 'map-type-lbl', Infinity, belowPlace) +
            `</g></g>`;
       return;
     }
-    dpM += `<g class="map-dev st-${st}" data-mapdev="${o.device_id || ''}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}" data-st="${st}">` +
+    dpM += `<g class="map-dev st-${st}" data-mapdev="${o.device_id || ''}" data-mapobj="${o.id}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}" data-st="${st}">` +
          `<title>${esc(j.label)}${o.device_ip ? ' · ' + esc(o.device_ip) : ''}${o.device_type ? ' · ' + esc(o.device_type) : ''} · ${esc(st)}</title>` +
          `<g class="dev-fixed" transform="translate(${F(j.cx)},${F(j.cy)})">` +
          `<circle class="dev-glow" r="30"/>` +
          `<g class="dev-plate">${markerSVG(st)}</g>` +
          iconUseIn(o.icon_id, DEV_GLYPH_PX) +
          `</g></g>`;
-    dpL += `<g class="map-dev-lbl" data-mapdev="${o.device_id || ''}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}">` +
+    dpL += `<g class="map-dev-lbl" data-mapdev="${o.device_id || ''}" data-mapobj="${o.id}" data-cx="${F(j.cx)}" data-cy="${F(j.cy)}">` +
          `<g class="dev-fixed" transform="translate(${F(j.cx)},${F(j.cy)})">` +
          labelStack(j.label, j.lines, j.caption, 'map-lbl', 'map-type-lbl', budFull[i], budCompact[i], placeFull[i], placeCompact[i]) +
          `</g></g>`;
@@ -2834,7 +2838,7 @@ async function renderMap(id) {
   const svg = $('#map-svg');
   wireMapView(svg);
   document.querySelectorAll('[data-mapdev]').forEach(g => {
-    if (g.dataset.mapdev) g.onclick = () => openDevice(+g.dataset.mapdev);
+    if (g.dataset.mapdev) g.onclick = () => mapDeviceClicked(g);
   });
   document.querySelectorAll('[data-grpmap]').forEach(g => {
     g.style.cursor = 'pointer';
@@ -2842,6 +2846,7 @@ async function renderMap(id) {
   });
   wireMapHover(svg);
   renderMapLegend(objects);
+  wireMapEdit(svg);
 }
 
 // ---- map hover card (the legacy system shows a brief status message
@@ -2900,6 +2905,395 @@ function renderMapLegend(objects) {
   el.innerHTML = html;
 }
 
+// ---- Map Edit Mode (v3.7) --------------------------------------
+// An administrator can edit the open map itself: place a device on
+// it (an existing device, or a brand-new one created in the panel),
+// drag a device marker to a new stored position (the lines
+// attached to it follow — the server rewrites their stored
+// endpoints), remove a device from the map without deleting it,
+// edit / disable / delete the device itself, and add or delete
+// link lines between two devices. Editing always acts on the
+// stored (faithful) positions, so entering Edit Mode switches Tidy
+// View off. Viewers never see any of this: the Edit Map button is
+// admin-only in the markup, the handlers below refuse to run for a
+// viewer, and the server refuses viewer mutations regardless.
+const mapEdit = {
+  on: false,
+  mapId: null,        // the map the current selection belongs to
+  selDevice: null,    // {objId, deviceId} of the selected marker
+  selDeviceData: null, // the selected device's fresh record
+  selLine: null,      // object id of the selected line
+  linkMode: false,    // Add Link is armed
+  linkFirst: null,    // first device object picked for a new link
+};
+
+function setMapEditStatus(msg) {
+  const el = $('#map-edit-status');
+  if (el) el.textContent = msg || '';
+}
+function syncLinkBtn() {
+  const b = $('#map-add-link-btn');
+  if (b) {
+    b.classList.toggle('active', mapEdit.linkMode);
+    b.textContent = mapEdit.linkMode ? 'Cancel Add Link' : 'Add Link';
+  }
+}
+// The stored coordinates of the centre of the current view — the
+// placement point for a device added to the map.
+function mapViewCentreStored() {
+  if (mapVB && mapScene) {
+    return { x: mapVB.x + mapVB.w / 2 + mapScene.minX, y: mapScene.maxY - (mapVB.y + mapVB.h / 2) };
+  }
+  if (currentMapMeta) {
+    return { x: (currentMapMeta.min_x + currentMapMeta.max_x) / 2, y: (currentMapMeta.min_y + currentMapMeta.max_y) / 2 };
+  }
+  return { x: 0, y: 0 };
+}
+
+async function enterMapEdit() {
+  if (!IS_ADMIN() || currentMapId == null) return;
+  mapEdit.on = true;
+  mapEdit.selDevice = null; mapEdit.selLine = null;
+  mapEdit.linkFirst = null; mapEdit.linkMode = false; syncLinkBtn();
+  if (mapTidy) { mapTidy = false; syncTidyBtns(); }
+  setMapEditStatus('');
+  renderMap(currentMapId);
+}
+function exitMapEdit() {
+  mapEdit.on = false;
+  mapEdit.selDevice = null; mapEdit.selLine = null;
+  mapEdit.linkFirst = null; mapEdit.linkMode = false; syncLinkBtn();
+  const panel = $('#map-sel-panel');
+  if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
+  if (currentMapId != null) renderMap(currentMapId);
+}
+$('#map-edit-btn') && ($('#map-edit-btn').onclick = () => { mapEdit.on ? exitMapEdit() : enterMapEdit(); });
+$('#map-edit-done') && ($('#map-edit-done').onclick = () => exitMapEdit());
+$('#map-add-link-btn') && ($('#map-add-link-btn').onclick = () => {
+  mapEdit.linkMode = !mapEdit.linkMode;
+  mapEdit.linkFirst = null;
+  document.querySelectorAll('.map-link-first').forEach(el => el.classList.remove('map-link-first'));
+  syncLinkBtn();
+  setMapEditStatus(mapEdit.linkMode ? 'Click the first device of the new link.' : '');
+});
+
+// Click dispatcher for device markers: outside Edit Mode a click
+// opens the device, exactly as before; in Edit Mode it selects the
+// device (or picks a link endpoint while Add Link is armed).
+function mapDeviceClicked(g) {
+  const deviceId = +g.dataset.mapdev;
+  if (!mapEdit.on) { if (deviceId) openDevice(deviceId); return; }
+  const objId = +(g.dataset.mapobj || 0);
+  const obj = currentMapObjects.find(o => o.id === objId && o.type === 'Device') ||
+    currentMapObjects.find(o => o.type === 'Device' && o.device_id === deviceId);
+  if (!obj) return;
+  if (mapEdit.linkMode) { mapLinkPick(obj); return; }
+  mapEdit.selDevice = { objId: obj.id, deviceId: obj.device_id };
+  mapEdit.selLine = null;
+  renderMapSelPanel();
+}
+
+function mapLinkPick(obj) {
+  if (!mapEdit.linkFirst) {
+    mapEdit.linkFirst = obj;
+    const marker = document.querySelector(`g.map-dev[data-mapobj="${obj.id}"]`);
+    if (marker) marker.classList.add('map-link-first');
+    setMapEditStatus(`Link start: ${obj.device_name || 'device'} — now click the second device.`);
+    return;
+  }
+  const first = mapEdit.linkFirst;
+  mapEdit.linkFirst = null;
+  document.querySelectorAll('.map-link-first').forEach(el => el.classList.remove('map-link-first'));
+  if (first.device_id === obj.device_id) {
+    setMapEditStatus('A link needs two different devices.');
+    return;
+  }
+  (async () => {
+    try {
+      await api(`/api/maps/${currentMapId}/objects`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'Line', from_device_id: first.device_id, to_device_id: obj.device_id }),
+      });
+      mapEdit.linkMode = false; syncLinkBtn();
+      setMapEditStatus('Link added.');
+      renderMap(currentMapId);
+    } catch (err) { alert(err.message); }
+  })();
+}
+
+function selectMapLine(lineId) {
+  mapEdit.selLine = lineId;
+  mapEdit.selDevice = null;
+  renderMapSelPanel();
+}
+
+// The selection panel inside the edit panel: the selected device's
+// actions, or the selected link's delete action.
+async function renderMapSelPanel() {
+  const panel = $('#map-sel-panel');
+  if (!panel) return;
+  document.querySelectorAll('.map-dev-selected').forEach(el => el.classList.remove('map-dev-selected'));
+  document.querySelectorAll('line.map-line-selected').forEach(el => el.classList.remove('map-line-selected'));
+  if (mapEdit.selDevice) {
+    const { objId, deviceId } = mapEdit.selDevice;
+    const marker = document.querySelector(`g.map-dev[data-mapobj="${objId}"]`);
+    if (marker) marker.classList.add('map-dev-selected');
+    let d = null;
+    try { d = await api('/api/devices/' + deviceId); } catch (e) { /* panel stays hidden */ }
+    if (!d || !mapEdit.selDevice || mapEdit.selDevice.objId !== objId) { panel.classList.add('hidden'); return; }
+    mapEdit.selDeviceData = d;
+    panel.innerHTML = `<span class="sel-name">${esc(d.name)}</span>` +
+      `<span class="muted">${esc(d.ip)}${d.monitoring_disabled ? ' · Monitoring off' : ''}</span>` +
+      `<button type="button" id="msel-open">Open Device</button>` +
+      `<button type="button" id="msel-edit">Edit Device</button>` +
+      `<button type="button" id="msel-mon">${d.monitoring_disabled ? 'Enable Monitoring' : 'Disable Monitoring'}</button>` +
+      `<button type="button" id="msel-remove">Remove from Map</button>` +
+      `<button type="button" id="msel-delete">Delete Device</button>`;
+    panel.classList.remove('hidden');
+    $('#msel-open').onclick = () => openDevice(deviceId);
+    $('#msel-edit').onclick = async () => { await openDevice(deviceId); $('#edit-panel').classList.remove('hidden'); };
+    $('#msel-mon').onclick = toggleMapDeviceMonitoring;
+    $('#msel-remove').onclick = removeSelectedFromMap;
+    $('#msel-delete').onclick = deleteSelectedDevice;
+    return;
+  }
+  if (mapEdit.selLine != null) {
+    const o = currentMapObjects.find(x => x.id === mapEdit.selLine && x.type === 'Line');
+    const el = document.querySelector(`line.map-line[data-line="${mapEdit.selLine}"]`);
+    if (el) el.classList.add('map-line-selected');
+    const nameOf = id => {
+      const dev = currentMapObjects.find(x => x.type === 'Device' && x.device_id === id);
+      return dev ? (dev.device_name || ('Device ' + id)) : null;
+    };
+    const a = o && o.line_from_device ? nameOf(o.line_from_device) : null;
+    const b = o && o.line_to_device ? nameOf(o.line_to_device) : null;
+    panel.innerHTML = `<span class="sel-name">Link</span>` +
+      `<span class="muted">${a && b ? esc(a) + ' — ' + esc(b) : 'Drawn link (its ends are not matched to devices)'}</span>` +
+      `<button type="button" id="msel-dellink">Delete Link</button>`;
+    panel.classList.remove('hidden');
+    $('#msel-dellink').onclick = deleteSelectedLink;
+    return;
+  }
+  panel.classList.add('hidden');
+  panel.innerHTML = '';
+}
+
+// Disable/Enable Monitoring from the map: the device's fresh
+// record is read back and saved with only the flag flipped — the
+// same semantics as the Devices page and the device page switch.
+async function toggleMapDeviceMonitoring() {
+  const sel = mapEdit.selDevice;
+  if (!sel) return;
+  let d = null;
+  try { d = await api('/api/devices/' + sel.deviceId); } catch (e) { return; }
+  const body = {
+    name: d.name, ip: d.ip, type: d.type, group_id: d.group_id || null,
+    community: d.community || 'public', snmp_disabled: !!d.snmp_disabled,
+    snmp_version: d.snmp_version || 'v2c',
+    v3_sec_name: d.v3_sec_name || '', v3_sec_level: d.v3_sec_level || '',
+    v3_auth_proto: d.v3_auth_proto || '', v3_auth_pass: d.v3_auth_pass || '',
+    v3_priv_proto: d.v3_priv_proto || '', v3_priv_pass: d.v3_priv_pass || '',
+    monitoring_disabled: !d.monitoring_disabled,
+  };
+  try {
+    await api('/api/devices/' + sel.deviceId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    setMapEditStatus(d.monitoring_disabled ? `Monitoring enabled for ${d.name}.` : `Monitoring disabled for ${d.name}.`);
+    updateLiveSummary();
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+}
+
+async function removeSelectedFromMap() {
+  const sel = mapEdit.selDevice;
+  if (!sel) return;
+  if (!confirm('Remove this device from this map? The device itself is not deleted.')) return;
+  try {
+    await api(`/api/maps/${currentMapId}/objects/${sel.objId}`, { method: 'DELETE' });
+    mapEdit.selDevice = null;
+    setMapEditStatus('Device removed from the map. The device itself was not deleted.');
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+}
+
+async function deleteSelectedDevice() {
+  const sel = mapEdit.selDevice;
+  if (!sel) return;
+  if (!confirm('Delete this device and its history? This cannot be undone.')) return;
+  try {
+    await api('/api/devices/' + sel.deviceId, { method: 'DELETE' });
+    mapEdit.selDevice = null;
+    setMapEditStatus('Device deleted.');
+    updateLiveSummary();
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+}
+
+async function deleteSelectedLink() {
+  if (mapEdit.selLine == null) return;
+  if (!confirm('Delete this link?')) return;
+  try {
+    await api(`/api/maps/${currentMapId}/objects/${mapEdit.selLine}`, { method: 'DELETE' });
+    mapEdit.selLine = null;
+    setMapEditStatus('Link deleted.');
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+}
+
+// The Add Device controls: the dropdown lists exactly the devices
+// that are not on this map yet; the group dropdown of the
+// create-new form mirrors the Devices page's.
+async function refreshMapAddControls() {
+  if (!mapEdit.on) return;
+  try {
+    const devs = await api('/api/devices');
+    const onMap = new Set(currentMapObjects.filter(o => o.type === 'Device' && o.device_id).map(o => o.device_id));
+    const sel = $('#map-add-select');
+    if (sel) {
+      const off = devs.filter(d => !onMap.has(d.id));
+      sel.innerHTML = off.length
+        ? '<option value="">Choose a device…</option>' + off.map(d => `<option value="${d.id}">${esc(d.name)} (${esc(d.ip)})</option>`).join('')
+        : '<option value="">Every device is already on this map</option>';
+    }
+    const gsel = $('#map-new-group-select');
+    if (gsel && gsel.options.length <= 1) {
+      const gs = await api('/api/groups').catch(() => []);
+      gsel.innerHTML = '<option value="">No group</option>' + gs.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+    }
+  } catch (e) { /* best effort: the panel's other controls still work */ }
+}
+
+$('#map-add-existing-form') && ($('#map-add-existing-form').onsubmit = async e => {
+  e.preventDefault();
+  const id = +($('#map-add-select').value || 0);
+  if (!id) { setMapEditStatus('Choose a device first.'); return; }
+  const c = mapViewCentreStored();
+  try {
+    await api(`/api/maps/${currentMapId}/objects`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'Device', device_id: id, x: c.x, y: c.y }),
+    });
+    setMapEditStatus('Device added to the map — drag it to where it belongs.');
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+});
+
+$('#map-new-device-form') && ($('#map-new-device-form').onsubmit = async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const body = { name: f.get('name'), ip: f.get('ip'), type: f.get('type'), ...snmpFieldsFromForm(f) };
+  const g = f.get('group_id'); if (g) body.group_id = +g;
+  try {
+    const dev = await api('/api/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const c = mapViewCentreStored();
+    await api(`/api/maps/${currentMapId}/objects`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'Device', device_id: dev.id, x: c.x, y: c.y }),
+    });
+    e.target.reset();
+    const cv = e.target.elements.namedItem('community'); if (cv) cv.value = 'public';
+    $('#map-new-snmp-version').value = 'v2c';
+    $('#map-new-v3-fields').classList.add('hidden');
+    setMapEditStatus(`Device ${dev.name || dev.ip} created and placed on the map — drag it to where it belongs.`);
+    updateLiveSummary();
+    renderMap(currentMapId);
+  } catch (err) { alert(err.message); }
+});
+wireSnmpVersion('#map-new-snmp-version', '#map-new-v3-fields');
+
+// Dragging a device marker in Edit Mode. The pan handler already
+// leaves device markers alone (it skips [data-mapdev] targets), so
+// a pointer-down on a marker or its label starts a drag instead;
+// a press without movement stays a plain click (selection). The
+// marker, its label and the attached lines follow the pointer in
+// scene coordinates; on drop the new stored position is saved and
+// the map re-renders from the database.
+function startMapDeviceDrag(e, g, svg) {
+  if (!mapEdit.on || e.button !== 0) return;
+  const objId = +(g.dataset.mapobj || 0);
+  const obj = currentMapObjects.find(o => o.id === objId && o.type === 'Device');
+  if (!obj || !mapScene) return;
+  e.preventDefault();
+  hideMapTip();
+  const pt = svg.createSVGPoint();
+  const toScene = ev => { pt.x = ev.clientX; pt.y = ev.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); };
+  const start = toScene(e);
+  const marker = svg.querySelector(`g.map-dev[data-mapobj="${objId}"]`);
+  const label = svg.querySelector(`g.map-dev-lbl[data-mapobj="${objId}"]`);
+  if (!marker) return;
+  const origCx = +marker.dataset.cx, origCy = +marker.dataset.cy;
+  const lines = currentMapObjects
+    .filter(o => o.type === 'Line' && (o.line_from_device === obj.device_id || o.line_to_device === obj.device_id))
+    .map(o => {
+      const el = svg.querySelector(`line.map-line[data-line="${o.id}"]`);
+      return el ? { o, el, x1: +el.getAttribute('x1'), y1: +el.getAttribute('y1'), x2: +el.getAttribute('x2'), y2: +el.getAttribute('y2') } : null;
+    }).filter(Boolean);
+  let moved = false, lastDx = 0, lastDy = 0;
+  const onMove = ev => {
+    const p = toScene(ev);
+    const dx = p.x - start.x, dy = p.y - start.y;
+    if (!moved && Math.hypot(dx, dy) < 2) return;
+    moved = true; lastDx = dx; lastDy = dy;
+    for (const grp of [marker, label]) {
+      if (!grp) continue;
+      grp.dataset.cx = (origCx + dx).toFixed(1);
+      grp.dataset.cy = (origCy + dy).toFixed(1);
+    }
+    mapScaleDevices(svg);
+    for (const L of lines) {
+      if (L.o.line_from_device === obj.device_id) { L.el.setAttribute('x1', L.x1 + dx); L.el.setAttribute('y1', L.y1 + dy); }
+      if (L.o.line_to_device === obj.device_id) { L.el.setAttribute('x2', L.x2 + dx); L.el.setAttribute('y2', L.y2 + dy); }
+    }
+  };
+  const onUp = async () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    if (!moved) return;
+    const nx = obj.x + lastDx, ny = obj.y - lastDy; // scene Y is the stored Y flipped
+    try {
+      await api(`/api/maps/${currentMapId}/objects/${objId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: nx, y: ny }),
+      });
+      setMapEditStatus(`Moved ${obj.device_name || 'device'} — the new position is saved.`);
+    } catch (err) { alert(err.message); }
+    renderMap(currentMapId);
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+
+// wireMapEdit runs after every map render: it applies the editing
+// affordances when Edit Mode is on for the open map, and makes
+// sure they are nowhere to be seen when it is off.
+function wireMapEdit(svg) {
+  const wrap = $('#map-wrap');
+  if (wrap) wrap.classList.toggle('editing', mapEdit.on);
+  const panel = $('#map-edit-panel');
+  if (panel) panel.classList.toggle('hidden', !mapEdit.on);
+  const btn = $('#map-edit-btn');
+  if (btn) btn.classList.toggle('active', mapEdit.on);
+  if (!mapEdit.on || !svg) return;
+  if (mapEdit.mapId !== currentMapId) {
+    mapEdit.mapId = currentMapId;
+    mapEdit.selDevice = null; mapEdit.selLine = null;
+    mapEdit.linkFirst = null; mapEdit.linkMode = false; syncLinkBtn();
+    const sp = $('#map-sel-panel');
+    if (sp) { sp.classList.add('hidden'); sp.innerHTML = ''; }
+  }
+  const meta = $('#map-meta');
+  if (meta && !meta.textContent.includes('Edit Mode is ON')) {
+    meta.textContent += ' · Edit Mode is ON: changes are saved to the stored map.';
+  }
+  svg.querySelectorAll('line.map-line').forEach(l => {
+    l.onclick = e => { e.stopPropagation(); selectMapLine(+l.dataset.line); };
+  });
+  svg.querySelectorAll('[data-mapobj]').forEach(g => {
+    g.addEventListener('pointerdown', e => startMapDeviceDrag(e, g, svg));
+  });
+  renderMapSelPanel();
+  refreshMapAddControls();
+}
+
 // Refresh only the status-driven styling on the visible map (no
 // re-render, so pan/zoom and the flow animations keep running).
 async function refreshMapStatus() {
@@ -2915,6 +3309,7 @@ async function refreshMapStatus() {
         if (!el) continue;
         const st = o.line_state || 'unknown';
         el.setAttribute('class', `map-line map-line-${st}`);
+        if (mapEdit.selLine === o.id) el.classList.add('map-line-selected');
         el.setAttribute('stroke', lineStroke(o, extra));
         continue;
       }

@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-DAA520" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Version-3.6.1-2F7F4F" alt="Version 3.6.1">
+  <img src="https://img.shields.io/badge/Version-3.7.0-2F7F4F" alt="Version 3.7.0">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-555555" alt="Platforms: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/Built%20with-Go-00ADD8" alt="Built with Go">
 </p>
@@ -27,14 +27,14 @@ every platform:
 
 | Platform | File |
 |---|---|
-| Windows (64-bit) | `NetGold-Monitor-Setup-v3.6.1.exe` (recommended installer) or `NetGold-Monitor-v3.6.1.exe` (portable) |
+| Windows (64-bit) | `NetGold-Monitor-Setup-v3.7.0.exe` (recommended installer) or `NetGold-Monitor-v3.7.0.exe` (portable) |
 | Linux (64-bit) | `netgold` |
 | macOS (Intel) | `netgold-darwin-amd64` |
 | macOS (Apple Silicon) | `netgold-darwin-arm64` |
 
 ### Windows
 Recommended: run the installer — see **Install on Windows** below.
-The portable `NetGold-Monitor-v3.6.1.exe` also works by itself:
+The portable `NetGold-Monitor-v3.7.0.exe` also works by itself:
 double-click it and the dashboard opens in your browser; the program
 runs quietly in the system tray (no console window). On the first
 run the portable copy installs itself to `%LOCALAPPDATA%\NetGold`
@@ -68,10 +68,10 @@ immediately, with no real network gear needed.
 
 ## Install on Windows
 
-Run **`NetGold-Monitor-Setup-v3.6.1.exe`** (administrator approval is
+Run **`NetGold-Monitor-Setup-v3.7.0.exe`** (administrator approval is
 asked once, for the install itself). The installer:
 
-- installs **NetGold Monitor 3.4.4** by **Shivam Bhalla** into
+- installs **NetGold Monitor 3.7.0** by **Shivam Bhalla** into
   `C:\Program Files\NetGold Monitor`, with the program icon, a Start
   Menu folder ("NetGold Monitor" and "Uninstall NetGold Monitor"),
   an optional desktop shortcut, and a normal Add/Remove Programs
@@ -126,7 +126,7 @@ NetGold Monitor is an unsigned, open-source build. That means:
   **More info → Run anyway**. Entering the exact version is in the
   file name precisely so you can be sure which build you are running.
 - You can verify your download: every release lists the SHA-256 of
-  each file, and `Get-FileHash .\NetGold-Monitor-v3.6.1.exe` in
+  each file, and `Get-FileHash .\NetGold-Monitor-v3.7.0.exe` in
   PowerShell shows the hash of the file you have — it must match the
   published one exactly.
 - The program is built to be easy for antivirus software to judge:
@@ -229,7 +229,10 @@ up, its plate is a green diamond._
   ping latency, CPU %, memory %; ranges 1 h – 7 d (30 d of storage).
 - **Maps** — diagrams imported from the legacy system at their exact stored
   positions, with flowing-line animation, down-device pulse and live
-  15-second status refresh.
+  15-second status refresh. Administrators can edit a map in place
+  (v3.7): add or create devices on it, drag them to new stored
+  positions (their links follow), remove a device from a map
+  without deleting it, and draw or delete link lines.
 - **Topology (new segment)** — build your own editable diagrams three
   ways: by hand in the drag-and-drop editor, copied from an imported
   map, or **imported from Excel** (downloadable template; “Nodes” +
@@ -502,6 +505,12 @@ itself drew it:
   to pan, double-click (or Fit Map) to reset. A legend under the map
   explains the icons and line colours. Map status refreshes every
   15 seconds without disturbing your zoom.
+- **Editing (v3.7).** An administrator's **Edit Map** button turns
+  the map into an editor over its stored drawing (see "What
+  changed in v3.7.0"): devices can be added, created, dragged,
+  removed from the map, edited, disabled or deleted, and link
+  lines drawn or deleted — all saved to the map's own stored
+  objects, leaving every other map exactly as it was.
 - **Topology from a map.** Building a topology "From Map" also creates
   links from the map's drawn lines, using the same endpoint matching.
   The Topology page captions them honestly as *reconstructed from the
@@ -572,7 +581,7 @@ You need Go 1.22+; there are no other build requirements (pure Go,
 ```bash
 go vet ./... && go test ./...
 go build -o dist/netgold ./cmd/netgold                                        # Linux
-GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o dist/NetGold-Monitor-v3.6.1.exe ./cmd/netgold  # Windows
+GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o dist/NetGold-Monitor-v3.7.0.exe ./cmd/netgold  # Windows
 GOOS=darwin GOARCH=amd64 go build -o dist/netgold-darwin-amd64 ./cmd/netgold  # macOS Intel
 GOOS=darwin GOARCH=arm64 go build -o dist/netgold-darwin-arm64 ./cmd/netgold  # macOS Apple Silicon
 ```
@@ -595,7 +604,7 @@ script (`installer/netgold.nsi`). It expects the pinned
 `SqlLocalDB.msi` (63,508,480 bytes, from the same Microsoft URL the
 program itself uses) in `build-cache/`; then, from the repository
 root: `makensis installer/netgold.nsi` produces
-`dist/NetGold-Monitor-Setup-v3.6.1.exe`.
+`dist/NetGold-Monitor-Setup-v3.7.0.exe`.
 
 Layout: `cmd/netgold` entry point (+ Windows service control) ·
 `internal/store` SQLite · `internal/poller` engine (ping/SNMP/
@@ -632,6 +641,43 @@ embedded UI + JSON API (sign-in and roles live in
   "Backup import — automatic engine setup" above).
 - Fixed `/api/stats` returning 500 on a brand-new, still-empty
   database (NULL sums) — found by live-testing a fresh install.
+
+## What changed in v3.7.0
+
+- **Maps are editable: Map Edit Mode.** The Maps page was
+  view-only until now — a device added on the Devices page never
+  appeared on any map, and nothing on a map could be changed. An
+  administrator now gets an **Edit Map** button on every map.
+  Entering Edit Mode switches Tidy View off (editing acts on the
+  stored positions, never on the arranged view) and opens the
+  editing panel:
+  - **Add a device to the map** — pick any monitored device that
+    is not on this map yet, or **create a new device** in the
+    panel (name, address, type, group and SNMP settings, like
+    the Devices page form) and place it in one step. The device
+    appears at the centre of the current view, ready to drag.
+  - **Drag to move** — drag a device marker to its new place;
+    the position is saved, and every line attached to the
+    device moves with it (the stored endpoints of its lines are
+    rewritten to the new centre, so the link still belongs to
+    the device however far it travels).
+  - **Device actions on the map** — clicking a device in Edit
+    Mode offers Open, Edit (the usual device form), Disable /
+    Enable Monitoring, **Remove from Map** (only the marker is
+    removed — the device, its history and its markers on other
+    maps are untouched) and Delete Device.
+  - **Links** — *Add Link*, then click two devices: a line is
+    stored between their centres and takes the live up/down
+    colours like an imported line. Parallel links between the
+    same pair stay separate lines, as everywhere in NetGold.
+    Clicking a line in Edit Mode selects it for deletion.
+  - Placing or moving a device outside the imported drawing
+    grows the map's stored extents (with a small margin), so the
+    device is inside the fitted view afterwards.
+  - Viewers see none of this: no Edit Map button, and the server
+    refuses map changes from a viewer session as it refuses
+    every other change.
+- Version **3.7.0** everywhere (program, installer, this README).
 
 ## What changed in v3.6.1
 

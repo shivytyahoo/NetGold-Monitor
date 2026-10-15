@@ -25,7 +25,7 @@ import (
 )
 
 // Version is the NetGold release served by this build.
-const Version = "3.6.1"
+const Version = "3.7.0"
 
 // versionToken is the placeholder in the embedded index page that is
 // replaced with Version when the page is served (v2.2.2). The page
@@ -142,6 +142,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/devices/{id}/monitors/{mid}", s.deleteMonitor)
 	mux.HandleFunc("GET /api/maps", s.listMaps)
 	mux.HandleFunc("GET /api/maps/{id}", s.getMap)
+	// v3.7: map editing (see mapedit.go) — administrator only; the
+	// auth guard refuses every mutating method for viewers.
+	mux.HandleFunc("POST /api/maps/{id}/objects", s.addMapObject)
+	mux.HandleFunc("PUT /api/maps/{id}/objects/{oid}", s.moveMapObject)
+	mux.HandleFunc("DELETE /api/maps/{id}/objects/{oid}", s.deleteMapObject)
 	// v2.0: topologies (see topology.go).
 	mux.HandleFunc("GET /api/topologies", s.listTopologies)
 	mux.HandleFunc("POST /api/topologies", s.createTopology)

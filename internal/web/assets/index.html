@@ -284,6 +284,9 @@
           plate while it is up, a red diamond with a × badge the moment it goes down, amber while its state
           is not known yet — with its device-type icon, its name, and a type / address caption under it, at the exact
           position stored in the source database, over the map's own coloured regions and captions.
+          An administrator can also change a map here: <b>Edit Map</b> adds devices to the map (or creates a
+          new device on it), moves a device by dragging it (its links move with it), removes a device from
+          the map without deleting it, and draws or deletes link lines between two devices.
           Line colour is live: green and flowing while the path is up, red and pulsing when a device on it
           goes down. Hover a device for its status card; click it to open its full detail and status timeline.
           On a crowded map, switch on <b>Tidy View</b> (in the map toolbar): the devices are rearranged on
@@ -306,7 +309,66 @@
                   <button type="button" id="map-zoom-fit">Fit Map</button>
                   <button type="button" id="map-tidy-btn" title="Arrange the devices so that no marker or label overlaps another. The stored positions are not changed — switch it off to see the faithful legacy layout again.">Tidy View: On</button>
                   <button type="button" id="map-theme-btn">Dark Canvas</button>
+                  <button type="button" id="map-edit-btn" class="admin-only" title="Edit this map: add, move and remove devices, and add or delete links. Only administrators can edit a map.">Edit Map</button>
                 </span>
+              </div>
+              <div id="map-edit-panel" class="map-edit-panel hidden">
+                <div class="map-edit-head">
+                  <b>Editing this map</b>
+                  <span class="muted">Tidy View is off while editing: you are changing the stored positions. Drag a device to move it — the links attached to it move with it. Click a device for its actions, or use Add Link and click two devices to draw a link between them. Click a link line to select it.</span>
+                  <button type="button" id="map-edit-done">Done Editing</button>
+                </div>
+                <div class="map-edit-row">
+                  <form id="map-add-existing-form" class="inline-form">
+                    <label>Add a device to this map
+                      <select id="map-add-select"><option value="">Choose a device…</option></select>
+                    </label>
+                    <button>Add to Map</button>
+                  </form>
+                  <span class="map-edit-tools">
+                    <button type="button" id="map-add-link-btn">Add Link</button>
+                    <span id="map-edit-status" class="muted" role="status"></span>
+                  </span>
+                </div>
+                <details class="map-edit-new">
+                  <summary>Or create a new device on this map</summary>
+                  <form id="map-new-device-form" class="inline-form">
+                    <input name="name" placeholder="Name (e.g. Branch Router)">
+                    <input name="ip" placeholder="IP address *" required>
+                    <select name="type">
+                      <option value="unknown">Type: Auto/Unknown</option><option value="router">Router</option>
+                      <option value="switch">Switch</option><option value="server">Server</option>
+                      <option value="firewall">Firewall</option><option value="demo">Demo (fake data)</option>
+                    </select>
+                    <select name="group_id" id="map-new-group-select"><option value="">No group</option></select>
+                    <select name="snmp_version" id="map-new-snmp-version">
+                      <option value="v2c">SNMP v2c</option>
+                      <option value="v3">SNMP v3</option>
+                    </select>
+                    <span class="v2c-fields"><input name="community" placeholder="SNMP community" value="public"></span>
+                    <button>Create and Place on Map</button>
+                  </form>
+                  <div class="v3-fields hidden" id="map-new-v3-fields">
+                    <div class="inline-form">
+                      <input name="v3_sec_name" form="map-new-device-form" placeholder="v3 user name (security name)">
+                      <select name="v3_sec_level" form="map-new-device-form">
+                        <option value="noAuthNoPriv">noAuthNoPriv</option>
+                        <option value="authNoPriv">authNoPriv</option>
+                        <option value="authPriv" selected>authPriv</option>
+                      </select>
+                      <select name="v3_auth_proto" form="map-new-device-form">
+                        <option value="">Auth: none</option><option value="MD5">Auth: MD5</option><option value="SHA" selected>Auth: SHA</option>
+                      </select>
+                      <input name="v3_auth_pass" form="map-new-device-form" type="password" placeholder="Auth password">
+                      <select name="v3_priv_proto" form="map-new-device-form">
+                        <option value="">Priv: none</option><option value="DES">Priv: DES</option><option value="AES" selected>Priv: AES</option>
+                      </select>
+                      <input name="v3_priv_pass" form="map-new-device-form" type="password" placeholder="Privacy password">
+                    </div>
+                    <p class="muted">SNMP v3 passwords are stored only in NetGold's local database on this computer — they are never sent anywhere else and never shown again in full.</p>
+                  </div>
+                </details>
+                <div id="map-sel-panel" class="map-sel-panel hidden"></div>
               </div>
               <div id="map-wrap" class="mapwrap canvas-light"></div>
               <p id="map-meta" class="muted"></p>
