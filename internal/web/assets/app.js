@@ -963,21 +963,46 @@ function planLabelStagger(pts, k, widths) {
     if (Math.min(aTop + 20, bTop + 20) - Math.max(aTop, bTop) <= 0.5) return false;
     return (widths[i] + widths[j]) / 2 - Math.abs(sx[i] - sx[j]) > 0.5;
   };
-  const total = () => {
-    let n = 0;
-    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (violates(i, j)) n++;
-    return n;
+  // v3.7.1: the colliding-pair count is maintained incrementally.
+  // The original recounted every pair for every trial (O(n^4) on
+  // dense maps); here a trial re-examines only the pairs that
+  // involve the candidate, and the committed counts are updated by
+  // the exact deltas. The decisions are identical: a candidate is
+  // staggered exactly when doing so strictly reduces the total
+  // number of colliding pairs.
+  const n = pts.length;
+  const cnt = new Array(n).fill(0); // colliding pairs per point
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (violates(i, j)) { cnt[i]++; cnt[j]++; }
+    }
+  }
+  const statusWith = c => {
+    const arr = new Uint8Array(n);
+    let v = 0;
+    for (let j = 0; j < n; j++) {
+      if (j !== c && violates(c, j)) { arr[j] = 1; v++; }
+    }
+    return [v, arr];
   };
   for (let pass = 0; pass < 4; pass++) {
     let improved = false;
-    for (let i = 0; i < pts.length; i++) {
-      for (let j = i + 1; j < pts.length; j++) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
         if (!violates(i, j)) continue;
         for (const cand of [j, i]) {
           if (stag[cand]) continue;
-          const before = total();
+          const [before, arrBefore] = statusWith(cand);
           stag[cand] = true;
-          if (total() < before) { improved = true; break; }
+          const [after, arrAfter] = statusWith(cand);
+          if (after < before) {
+            for (let x = 0; x < n; x++) {
+              if (x !== cand && arrAfter[x] !== arrBefore[x]) cnt[x] += arrAfter[x] - arrBefore[x];
+            }
+            cnt[cand] = after;
+            improved = true;
+            break;
+          }
           stag[cand] = false;
         }
       }
@@ -1115,6 +1140,16 @@ function planLabelSlots(items, k, canvas, opts) {
   if (!(k > 0) || !isFinite(k) || !items.length) return out;
   const M = hard ? LBL_MARK_HALF + 2 : LBL_MARK_HALF;
   const I_REG = 0, I_PILL = hard ? 2 : 1, I_MARK = hard ? 1 : 2, I_CVS = 3;
+  const n = items.length;
+  // v3.7.1: one work counter for the whole search (label scans,
+  // candidate generations, joint evaluations). The phases below
+  // consult it against SEARCH_OP_BUDGET and stop starting new
+  // work when it is spent — every accepted move strictly improves
+  // the arrangement, so the best arrangement found so far is
+  // kept. The budget sits far above what any real map needs
+  // (the regression script prints the counts per map).
+  let searchOps = 0;
+  const SEARCH_OP_BUDGET = 2000000;
   const marks = items.map(it => ({ x0: it.ax * k - M, y0: it.ay * k - M, x1: it.ax * k + M, y1: it.ay * k + M }));
   const cvs = { x0: canvas.x0 * k, y0: canvas.y0 * k, x1: canvas.x1 * k, y1: canvas.y1 * k };
   const area = r => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -1177,19 +1212,170 @@ function planLabelSlots(items, k, canvas, opts) {
     }
     return list;
   });
+  // ---- v3.7.1 performance restructure -------------------------
+  // The search below makes exactly the same decisions as the
+  // original planner — same candidates in the same order, same
+  // strict-improvement acceptance, same priority tuple — but the
+  // bookkeeping is incremental instead of recount-everything:
+  // - The region, marker and canvas parts of a candidate depend
+  //   only on the candidate itself, so each is computed ONCE and
+  //   cached on the candidate (the original recomputed the marker
+  //   loop on every evaluation). Marker overlaps are answered
+  //   through a uniform grid over the markers, not a full scan.
+  // - Pill overlaps live in a symmetric overlap graph. Moving one
+  //   label updates only its own edges; every label's cost and
+  //   the scene total stay exact at all times (the original
+  //   recomputed all n costs after every accepted move, and the
+  //   pair repair multiplied that by both candidate sets).
+  // The pair repair keeps its exact joint evaluation: the cost of
+  // a candidate pair is computed in one pass over the other
+  // labels, including the third-party adjustment the original
+  // applied, instead of one full cost evaluation per combination.
+  const GCELL = 2 * M + 8;
+  const markGrid = new Map();
+  marks.forEach((r, j) => {
+    const a = Math.floor(r.x0 / GCELL), b = Math.floor(r.y0 / GCELL);
+    const c = Math.floor(r.x1 / GCELL), d = Math.floor(r.y1 / GCELL);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const key = gx + ',' + gy;
+      if (!markGrid.has(key)) markGrid.set(key, []);
+      markGrid.get(key).push(j);
+    }
+  });
+  const mSeen = new Int32Array(n);
+  let mStamp = 0;
+  const markIdx = [];
+  const markOvOf = (i, rect) => {
+    // Summed in ascending marker order, like the original's scan,
+    // so the totals agree bit for bit.
+    let s = 0;
+    mStamp++;
+    markIdx.length = 0;
+    const a = Math.floor(rect.x0 / GCELL), b = Math.floor(rect.y0 / GCELL);
+    const c = Math.floor(rect.x1 / GCELL), d = Math.floor(rect.y1 / GCELL);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = markGrid.get(gx + ',' + gy);
+      if (!cell) continue;
+      for (const j of cell) {
+        if (j === i || mSeen[j] === mStamp) continue;
+        mSeen[j] = mStamp;
+        markIdx.push(j);
+      }
+    }
+    markIdx.sort((x, y) => x - y);
+    for (const j of markIdx) s += ovArea(rect, marks[j]);
+    return s;
+  };
+  const markCountOf = (i, rect) => {
+    let cnt = 0;
+    mStamp++;
+    const a = Math.floor(rect.x0 / GCELL), b = Math.floor(rect.y0 / GCELL);
+    const c = Math.floor(rect.x1 / GCELL), d = Math.floor(rect.y1 / GCELL);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = markGrid.get(gx + ',' + gy);
+      if (!cell) continue;
+      for (const j of cell) {
+        if (j === i || mSeen[j] === mStamp) continue;
+        mSeen[j] = mStamp;
+        if (ovArea(rect, marks[j]) > 0) cnt++;
+      }
+    }
+    return cnt;
+  };
+  const nearMarkIdx = r => {
+    const set = new Set();
+    const a = Math.floor(r.x0 / GCELL), b = Math.floor(r.y0 / GCELL);
+    const c = Math.floor(r.x1 / GCELL), d = Math.floor(r.y1 / GCELL);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = markGrid.get(gx + ',' + gy);
+      if (cell) for (const j of cell) set.add(j);
+    }
+    return set;
+  };
+  const staticOf = (i, c) => {
+    if (c._st) return c._st;
+    const reg = candCache[i].length ? candCache[i][0].reg : null;
+    c._st = {
+      reg: reg ? area(c.rect) - ovArea(c.rect, reg) : 0,
+      mark: markOvOf(i, c.rect),
+      cvs: area(c.rect) - ovArea(c.rect, cvs),
+    };
+    return c._st;
+  };
+  // Hard mode (v3.4.3): the region, marker and canvas parts of a
+  // candidate are static — they depend only on the candidate rect,
+  // never on the other labels — so "this label has a completely
+  // clean placement" can be decided per label up front. Levels:
+  // 2 = a candidate clean on region+marker+canvas exists, 1 = one
+  // clean on region+marker exists, 0 = neither (no restriction).
+  const cleanAt = (i, c, level) => {
+    const sp = staticOf(i, c);
+    if (sp.reg !== 0 || sp.mark !== 0) return false;
+    return level < 2 || sp.cvs === 0;
+  };
+  const levels = items.map((it, i) => {
+    if (!hard) return 0;
+    if (candCache[i].some(c => cleanAt(i, c, 2))) return 2;
+    if (candCache[i].some(c => cleanAt(i, c, 1))) return 1;
+    return 0;
+  });
+  const poolFor = (i, extra) => {
+    const base = extra ? candCache[i].concat(extra) : candCache[i];
+    if (!hard || levels[i] === 0) return base;
+    return base.filter(c => cleanAt(i, c, levels[i]));
+  };
   // Dodge candidates, generated against the CURRENT arrangement:
   // when every fitted slot of a label is blocked, sliding the pill
   // along its slot until it just clears the blocking label or
   // marker often opens a clean spot the fixed shifts cannot reach.
   // For each slot, every nearby obstacle contributes the two
   // shifts that would put the pill just beside it.
+  const rects = new Array(n).fill(null);
+  const cur = new Array(n).fill(null);
+  // Dodge candidates are a pure function of the placed pills
+  // near the anchor, and the searches ask for them again and
+  // again while little has moved — so they are cached per label.
+  // A hit is validated exactly: the generator's fetch window
+  // must still hold the same labels, each still at the identical
+  // rect object; anything else regenerates. A validated hit
+  // returns the identical list the generator would have built.
+  const dodgeCache = new Array(n).fill(null);
   const dodgeFor = (i, it) => {
+    const hit = dodgeCache[i];
+    if (hit && hit.it === it) {
+      const now = nearIdx(hit.fx);
+      let ok = now.size === hit.rIdx.length;
+      if (ok) {
+        for (const j of hit.rIdx) {
+          if (!now.has(j) || rects[j] !== hit.rRefs.get(j)) { ok = false; break; }
+        }
+      }
+      if (ok) return hit.list;
+    }
+    return dodgeGen(i, it);
+  };
+  const dodgeGen = (i, it) => {
     const ax = it.ax * k, ay = it.ay * k;
     const reg = candCache[i].length ? candCache[i][0].reg : null;
     const names = ['below', 'below-stag', 'above', 'above-stag', 'right', 'left'];
+    // The obstacle scan visits only labels and markers near the
+    // anchor, fetched through the grids: the fetch window covers
+    // every obstacle any slot filter below could accept (the
+    // filters themselves are unchanged, and the obstacles keep
+    // their original order — placed pills first, then markers,
+    // each in index order), so the generated shifts are identical.
+    const fx = { x0: ax - (2 * it.w + 60), y0: ay - (2 * it.h + 60), x1: ax + (2 * it.w + 60), y1: ay + (2 * it.h + 60) };
     const obs = [];
-    for (let j = 0; j < rects.length; j++) { if (j !== i && rects[j]) obs.push(rects[j]); }
-    for (let j = 0; j < marks.length; j++) { if (j !== i) obs.push(marks[j]); }
+    const rIdxAll = [...nearIdx(fx)];
+    const rIdx = rIdxAll.filter(j => j !== i).sort((x, y) => x - y);
+    for (const j of rIdx) obs.push(rects[j]);
+    const mIdx = [...nearMarkIdx(fx)].filter(j => j !== i).sort((x, y) => x - y);
+    for (const j of mIdx) obs.push(marks[j]);
+    searchOps += obs.length;
+    const rRefs = new Map();
+    for (const j of rIdxAll) rRefs.set(j, rects[j]);
+    const cacheEntry = { it, fx, rIdx: rIdxAll, rRefs, list: null };
+    dodgeCache[i] = cacheEntry;
     const out = [];
     for (const nm of names) {
       const stag = nm.endsWith('-stag');
@@ -1219,57 +1405,174 @@ function planLabelSlots(items, k, canvas, opts) {
         out.push({ slot, stag, dx: horiz ? s : 0, dy: horiz ? 0 : s, rect, reg, home: false });
       }
     }
+    cacheEntry.list = out;
     return out;
   };
-  const rects = new Array(items.length).fill(null);
-  const cur = new Array(items.length).fill(null);
-  const costOf = (i, rect) => {
-    let pillOv = 0;
-    for (let j = 0; j < rects.length; j++) {
-      if (j !== i && rects[j]) pillOv += ovArea(rect, rects[j]);
+  // A uniform grid over the placed pills, maintained as labels
+  // move: overlap queries visit only the labels whose cells a
+  // rect touches. Every term it skips is exactly zero, so the
+  // sums (and therefore the decisions) are unchanged.
+  const RCELL = 128;
+  const rectGrid = new Map();
+  const gridCellsOf = r => [Math.floor(r.x0 / RCELL), Math.floor(r.y0 / RCELL), Math.floor(r.x1 / RCELL), Math.floor(r.y1 / RCELL)];
+  const gridAdd = (idx, r) => {
+    const [a, b, c, d] = gridCellsOf(r);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const key = gx + ',' + gy;
+      if (!rectGrid.has(key)) rectGrid.set(key, []);
+      rectGrid.get(key).push(idx);
     }
-    let markOv = 0;
-    for (let j = 0; j < marks.length; j++) {
-      if (j !== i) markOv += ovArea(rect, marks[j]);
+  };
+  const gridRemove = (idx, r) => {
+    const [a, b, c, d] = gridCellsOf(r);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = rectGrid.get(gx + ',' + gy);
+      if (cell) { const p = cell.indexOf(idx); if (p >= 0) cell.splice(p, 1); }
     }
-    const reg = candCache[i].length ? candCache[i][0].reg : null;
-    const regOv = reg ? area(rect) - ovArea(rect, reg) : 0;
-    const cvsOv = area(rect) - ovArea(rect, cvs);
-    return hard ? [regOv, markOv, pillOv, cvsOv] : [regOv, pillOv, markOv, cvsOv];
   };
-  // Hard mode (v3.4.3): the region, marker and canvas parts of a
-  // candidate are static — they depend only on the candidate rect,
-  // never on the other labels — so "this label has a completely
-  // clean placement" can be decided per label up front. Levels:
-  // 2 = a candidate clean on region+marker+canvas exists, 1 = one
-  // clean on region+marker exists, 0 = neither (no restriction).
-  const staticParts = (i, rect) => {
-    let markOv = 0;
-    for (let j = 0; j < marks.length; j++) {
-      if (j !== i) markOv += ovArea(rect, marks[j]);
+  const nearIdx = (r, into) => {
+    const set = into || new Set();
+    const [a, b, c, d] = gridCellsOf(r);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = rectGrid.get(gx + ',' + gy);
+      if (cell) for (const x of cell) set.add(x);
     }
-    const reg = candCache[i].length ? candCache[i][0].reg : null;
-    return {
-      reg: reg ? area(rect) - ovArea(rect, reg) : 0,
-      mark: markOv,
-      cvs: area(rect) - ovArea(rect, cvs),
-    };
+    return set;
   };
-  const cleanAt = (i, c, level) => {
-    const sp = staticParts(i, c.rect);
-    if (sp.reg !== 0 || sp.mark !== 0) return false;
-    return level < 2 || sp.cvs === 0;
+  // The pill-overlap graph and the exact per-label costs.
+  const pillOv = Array.from({ length: n }, () => new Map());
+  const pillWith = i => {
+    // Ascending neighbour order, matching the original's scan, so
+    // the sums agree bit for bit.
+    let s = 0;
+    const ks = [...pillOv[i].keys()].sort((x, y) => x - y);
+    for (const j of ks) s += pillOv[i].get(j);
+    return s;
   };
-  const levels = items.map((it, i) => {
-    if (!hard) return 0;
-    if (candCache[i].some(c => cleanAt(i, c, 2))) return 2;
-    if (candCache[i].some(c => cleanAt(i, c, 1))) return 1;
-    return 0;
-  });
-  const poolFor = (i, extra) => {
-    const base = extra ? candCache[i].concat(extra) : candCache[i];
-    if (!hard || levels[i] === 0) return base;
-    return base.filter(c => cleanAt(i, c, levels[i]));
+  const costs = new Array(n).fill(null);
+  const total = [0, 0, 0, 0];
+  const costOfParts = (i, st, pill) => hard ? [st.reg, st.mark, pill, st.cvs] : [st.reg, pill, st.mark, st.cvs];
+  const refreshCost = j => { costs[j] = costOfParts(j, staticOf(j, cur[j]), pillWith(j)); };
+  // pillScan sums a rect's overlap with the placed pills (label
+  // i excluded) by walking the pill grid's cells — no allocation,
+  // labels deduplicated with a stamp. When bailAt is given the
+  // scan may stop once the sum passes it (overlaps only add, so
+  // the caller's comparison is already decided); the returned sum
+  // is then a lower bound that has passed bailAt.
+  const rSeen = new Int32Array(n);
+  let rStamp = 0;
+  const scanIdx = [];
+  const pillScan = (i, rect, bailAt) => {
+    // Neighbours are collected first and the areas summed in
+    // ascending label order — the same order the original's full
+    // scan used — so the sums agree bit for bit and exact ties
+    // break the same way. (Grid cell order would sum the same
+    // areas in a different order and flip ties on rounding.)
+    let pill = 0, cnt = 0;
+    rStamp++;
+    scanIdx.length = 0;
+    const [a, b, c, d] = gridCellsOf(rect);
+    for (let gx = a; gx <= c; gx++) for (let gy = b; gy <= d; gy++) {
+      const cell = rectGrid.get(gx + ',' + gy);
+      if (!cell) continue;
+      for (const j of cell) {
+        if (j === i || rSeen[j] === rStamp) continue;
+        rSeen[j] = rStamp;
+        scanIdx.push(j);
+      }
+    }
+    searchOps += scanIdx.length;
+    scanIdx.sort((x, y) => x - y);
+    for (const j of scanIdx) {
+      const ov = ovArea(rect, rects[j]);
+      if (ov > 0) {
+        pill += ov; cnt++;
+        if (bailAt !== undefined && pill > bailAt) return { pill, cnt };
+      }
+    }
+    return { pill, cnt };
+  };
+  // trialEval evaluates one candidate against the current scene:
+  // its full cost tuple and how many placed pills it would touch.
+  const trialEval = (i, cand) => {
+    const s = pillScan(i, cand.rect);
+    return { cost: costOfParts(i, staticOf(i, cand), s.pill), pillCount: s.cnt };
+  };
+  // trialEvalWin is trialEval for the main search: it returns the
+  // candidate's exact cost when the resulting scene total would be
+  // lexicographically below bestTotal, and null when that is
+  // already decided against the candidate — the priority order
+  // lets most candidates be rejected on their static components,
+  // or on a partial pill sum (overlaps only ever add), without
+  // finishing the scan.
+  const trialEvalWin = (i, cand, bestTotal) => {
+    const ci = costs[i], st = staticOf(i, cand), stc = costOfParts(i, st, 0);
+    let winning = false;
+    for (let t = 0; t < I_PILL; t++) {
+      const nt = total[t] - ci[t] + stc[t];
+      if (nt > bestTotal[t]) return null;
+      if (nt < bestTotal[t]) { winning = true; break; }
+    }
+    // The bail threshold is the pill sum at which the candidate
+    // would tie the best total; it is computed through a chain of
+    // additions that can round a hair below the scan's own sum,
+    // so it carries a small headroom — the exact comparison below
+    // still decides, and a late bail only costs a little time.
+    const tiePill = bestTotal[I_PILL] - total[I_PILL] + ci[I_PILL];
+    const bailAt = winning ? undefined : tiePill + Math.abs(tiePill) * 1e-9 + 1e-6;
+    const s = pillScan(i, cand.rect, bailAt);
+    if (!winning && s.pill > tiePill && s.pill > bailAt) return null;
+    const cc = costOfParts(i, st, s.pill);
+    if (winning) return cc;
+    const nt = [0, 1, 2, 3].map(t => total[t] - ci[t] + cc[t]);
+    return lexLess(nt, bestTotal) ? cc : null;
+  };
+  // trialEvalGuard is trialEval for the polish passes: the
+  // guards compare the resulting scene total against the current
+  // one component by component, so a candidate whose static
+  // components already break a guard — or whose pill sum passes
+  // the current label's during the scan — is rejected without
+  // finishing the scan or counting its pill neighbours.
+  // bailPill: the marker polish also guards the pill total, so a
+  // candidate whose pill sum passes the current label's can be
+  // cut mid-scan; the pill polish guards other components and
+  // judges pill area itself, so it must not cut there (a candidate
+  // touching fewer pills may carry more area and still win).
+  const trialEvalGuard = (i, cand, guardIdxs, bailPill) => {
+    const ci = costs[i], st = staticOf(i, cand), stc = costOfParts(i, st, 0);
+    for (const t of guardIdxs) {
+      if (t !== I_PILL && stc[t] > ci[t]) return null;
+    }
+    const s = pillScan(i, cand.rect, bailPill ? ci[I_PILL] : undefined);
+    if (bailPill && s.pill > ci[I_PILL]) return null;
+    return { cost: costOfParts(i, st, s.pill), pillCount: s.cnt };
+  };
+  // applyMove places label i on cand and brings the overlap graph,
+  // the affected costs and the scene total up to date — only the
+  // moved label and its old/new neighbours are touched.
+  const applyMove = (i, cand) => {
+    const affected = new Set([i, ...pillOv[i].keys()]);
+    for (const j of pillOv[i].keys()) pillOv[j].delete(i);
+    pillOv[i].clear();
+    gridRemove(i, rects[i]);
+    cur[i] = cand;
+    rects[i] = cand.rect;
+    gridAdd(i, cand.rect);
+    for (let j = 0; j < n; j++) {
+      if (j === i || !rects[j]) continue;
+      const a = ovArea(cand.rect, rects[j]);
+      if (a > 0) { pillOv[i].set(j, a); pillOv[j].set(i, a); }
+    }
+    for (const j of pillOv[i].keys()) if (!affected.has(j)) affected.add(j);
+    for (const j of affected) refreshCost(j);
+    // The total is rebuilt as a fresh ascending sum — the
+    // original recomputed it wholesale after every move, and
+    // delta updates round differently and can flip exact ties.
+    for (let t = 0; t < 4; t++) {
+      let s = 0;
+      for (let j = 0; j < n; j++) s += costs[j][t];
+      total[t] = s;
+    }
   };
   // Start from the classic arrangement (in hard mode: from the
   // most classic CLEAN candidate when home itself is unclean).
@@ -1281,12 +1584,19 @@ function planLabelSlots(items, k, canvas, opts) {
     cur[i] = home;
     rects[i] = home.rect;
   });
-  let costs = items.map((it, i) => costOf(i, rects[i]));
-  const totalOf = cs => cs.reduce((t, c) => [t[0] + c[0], t[1] + c[1], t[2] + c[2], t[3] + c[3]], [0, 0, 0, 0]);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = ovArea(rects[i], rects[j]);
+      if (a > 0) { pillOv[i].set(j, a); pillOv[j].set(i, a); }
+    }
+    gridAdd(i, rects[i]);
+  }
+  items.forEach((it, i) => refreshCost(i));
+  for (let t = 0; t < 4; t++) total[t] = costs.reduce((s, c) => s + c[t], 0);
   // Note: the pill-overlap component of the total counts every
   // pair twice (once from each side) — consistent for comparisons.
-  let total = totalOf(costs);
   for (let pass = 0; pass < 16; pass++) {
+    if (searchOps > SEARCH_OP_BUDGET) break;
     let moved = false;
     const order = items.map((_, i) => i)
       .sort((a, b) => lexCmp(costs[b], costs[a]) || a - b);
@@ -1295,25 +1605,18 @@ function planLabelSlots(items, k, canvas, opts) {
       let bestC = null, bestTotal = total;
       for (const c of poolFor(i, dodgeFor(i, items[i]))) {
         if (c === cur[i]) continue;
-        const cc = costOf(i, c.rect);
-        const nt = [
-          total[0] - costs[i][0] + cc[0],
-          total[1] - costs[i][1] + cc[1],
-          total[2] - costs[i][2] + cc[2],
-          total[3] - costs[i][3] + cc[3],
-        ];
-        if (lexLess(nt, bestTotal)) { bestTotal = nt; bestC = c; }
+        const cc = trialEvalWin(i, c, bestTotal);
+        if (cc) {
+          bestTotal = [
+            total[0] - costs[i][0] + cc[0],
+            total[1] - costs[i][1] + cc[1],
+            total[2] - costs[i][2] + cc[2],
+            total[3] - costs[i][3] + cc[3],
+          ];
+          bestC = c;
+        }
       }
-      if (bestC) {
-        cur[i] = bestC;
-        rects[i] = bestC.rect;
-        moved = true;
-        // A moved label changes its neighbours' overlap costs;
-        // resync everything so the next decision (and the totals
-        // it is judged against) is exact, not one move stale.
-        costs = items.map((it, j) => costOf(j, rects[j]));
-        total = totalOf(costs);
-      }
+      if (bestC) { applyMove(i, bestC); moved = true; }
     }
     if (!moved) break;
   }
@@ -1321,46 +1624,117 @@ function planLabelSlots(items, k, canvas, opts) {
   // move — each label's escape is covered by the other's pill. For
   // every pair that still overlaps, move BOTH labels through
   // their candidate sets together and keep the best joint result
-  // that strictly improves the scene total. The total for a
-  // combination is evaluated exactly in O(n): only the two moved
-  // labels' own costs and their overlaps with third parties can
-  // change.
-  for (let round = 0; round < 6; round++) {
+  // that strictly improves the scene total.
+  //
+  // v3.7.1: the joint total separates per candidate. Writing a
+  // combination's total as
+  //   total - oldCi - oldCj + ni + nj + extra (at the pill index),
+  // the only term that couples the two candidates is their mutual
+  // overlap: ni and nj otherwise depend on one candidate each
+  // (statics, overlap with third parties), and extra splits into
+  // a per-candidate part. Each candidate therefore carries a
+  // score vector w (its own cost with the third-party adjustment
+  // folded in), and a combination costs one overlap computation
+  // instead of a full scene pass. Candidates are visited in
+  // ascending order of a lower bound on w (the static parts are
+  // exact and the pill part is >= a per-pair constant), exact
+  // scores are computed lazily, and a branch is pruned only when
+  // its bound already exceeds the best total found — so the
+  // combination kept is exactly the one an exhaustive search
+  // kept, ties included (a tie goes to the earliest candidate
+  // pair, as before). A generous work budget (far above anything
+  // a real map needs — the regression script prints the counts)
+  // caps the phase on pathological inputs: every accepted move
+  // strictly improves the scene, so stopping early simply keeps
+  // the best arrangement found so far.
+  const lexEq = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+  // The pair phase recomputes the joint total in a different
+  // (algebraically identical) grouping than the original's, so
+  // its values can differ from the original's by rounding dust
+  // (~1e-10 on these magnitudes). Comparisons that steer pruning
+  // and tie-breaking therefore treat differences under 1e-6 as
+  // ties: real geometric differences are far larger, and a tie
+  // goes to the earliest candidate pair, as before.
+  const CMP_SLACK = 1e-6;
+  const lexCmpSlack = (a, b) => {
+    for (let t = 0; t < 4; t++) {
+      const d = a[t] - b[t];
+      if (d < -CMP_SLACK) return -1;
+      if (d > CMP_SLACK) return 1;
+    }
+    return 0;
+  };
+  let pairBudgetHit = false;
+  for (let round = 0; round < 6 && !pairBudgetHit; round++) {
     let improved = false;
-    for (let i = 0; i < items.length; i++) {
-      for (let j = i + 1; j < items.length; j++) {
-        if (ovArea(rects[i], rects[j]) <= 0) continue;
+    for (let i = 0; i < n && !pairBudgetHit; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (!pillOv[i].has(j)) continue;
         const oldI = rects[i], oldJ = rects[j];
-        const oldCi = costOf(i, oldI), oldCj = costOf(j, oldJ);
+        const oldCi = costs[i], oldCj = costs[j];
         const candI = poolFor(i, dodgeFor(i, items[i]));
         const candJ = poolFor(j, dodgeFor(j, items[j]));
-        let bestPair = null, bestTotal = total;
-        for (const ci of candI) {
-          for (const cj of candJ) {
-            if (ci === cur[i] && cj === cur[j]) continue;
-            rects[i] = ci.rect;
-            rects[j] = cj.rect;
-            const ni = costOf(i, ci.rect), nj = costOf(j, cj.rect);
-            let extra = 0;
-            for (let x = 0; x < items.length; x++) {
-              if (x === i || x === j || !rects[x]) continue;
-              extra += ovArea(ci.rect, rects[x]) + ovArea(cj.rect, rects[x])
-                     - ovArea(oldI, rects[x]) - ovArea(oldJ, rects[x]);
+        const base = [0, 1, 2, 3].map(t => total[t] - oldCi[t] - oldCj[t]);
+        // One side's candidates with their lower bounds. baseOld
+        // is the candidate-independent part of the extra term:
+        // extra(c) = pill(c) - baseOld, because every label that
+        // overlaps the old rect is inside its grid neighbourhood.
+        const mkSide = (self, other, cands, oldSelf) => {
+          let baseOld = 0;
+          for (const x of nearIdx(oldSelf)) {
+            if (x === self || x === other) continue;
+            baseOld += ovArea(oldSelf, rects[x]);
+          }
+          const arr = cands.map((c, idx) => {
+            const st = staticOf(self, c);
+            const lb = costOfParts(self, st, 0);
+            lb[I_PILL] -= baseOld;
+            return { c, idx, st, lb, baseOld, v: null };
+          });
+          arr.sort((a, b) => lexCmp(a.lb, b.lb) || a.idx - b.idx);
+          return arr;
+        };
+        const exact = (self, other, e) => {
+          if (e.v) return e.v;
+          // pillScan also visits the pair partner; its term is
+          // removed again — the partner is scored separately.
+          const s = pillScan(self, e.c.rect);
+          const pill = s.pill - (rects[other] ? ovArea(e.c.rect, rects[other]) : 0);
+          const v = costOfParts(self, e.st, pill);
+          v[I_PILL] += pill - e.baseOld;
+          e.v = v;
+          return v;
+        };
+        const SI = mkSide(i, j, candI, oldI);
+        const SJ = mkSide(j, i, candJ, oldJ);
+        const lbMinI = SI.length ? SI[0].lb : null;
+        const lbMinJ = SJ.length ? SJ[0].lb : null;
+        let bestPair = null, bestTotal = total, bestAB = null;
+        for (const A of SI) {
+          if (searchOps > SEARCH_OP_BUDGET) { pairBudgetHit = true; break; }
+          if (lbMinJ) {
+            const bound = [0, 1, 2, 3].map(t => base[t] + A.lb[t] + lbMinJ[t]);
+            if (lexCmpSlack(bound, bestTotal) > 0) break; // SI ascends: later A cannot do better
+          }
+          exact(i, j, A);
+          for (const B of SJ) {
+            if (A.c === cur[i] && B.c === cur[j]) continue;
+            const lb = [0, 1, 2, 3].map(t => base[t] + A.v[t] + B.lb[t]);
+            if (lexCmpSlack(lb, bestTotal) > 0) break; // SJ ascends: later B cannot do better
+            exact(j, i, B);
+            searchOps++;
+            const t = [0, 1, 2, 3].map(x => base[x] + A.v[x] + B.v[x]);
+            t[I_PILL] += 2 * ovArea(A.c.rect, B.c.rect);
+            const cmpT = lexCmpSlack(t, bestTotal);
+            if (cmpT < 0 ||
+                (bestPair && cmpT === 0 && (A.idx < bestAB[0] || (A.idx === bestAB[0] && B.idx < bestAB[1])))) {
+              bestTotal = t; bestPair = [A.c, B.c]; bestAB = [A.idx, B.idx];
             }
-            const t = total.map((tv, x) => tv - oldCi[x] - oldCj[x] + ni[x] + nj[x]);
-            t[I_PILL] += extra;
-            if (lexLess(t, bestTotal)) { bestTotal = t; bestPair = [ci, cj]; }
           }
         }
-        rects[i] = oldI;
-        rects[j] = oldJ;
         if (bestPair) {
-          cur[i] = bestPair[0];
-          cur[j] = bestPair[1];
-          rects[i] = bestPair[0].rect;
-          rects[j] = bestPair[1].rect;
-          costs = items.map((it, x) => costOf(x, rects[x]));
-          total = totalOf(costs);
+          applyMove(i, bestPair[0]);
+          applyMove(j, bestPair[1]);
           improved = true;
         }
       }
@@ -1377,47 +1751,28 @@ function planLabelSlots(items, k, canvas, opts) {
   // polish can never undo the higher priorities, in counts or
   // in areas.
   if (!hard) {
-    const markCountOf = (i, rect) => {
-      let n = 0;
-      for (let j = 0; j < marks.length; j++) {
-        if (j !== i && ovArea(rect, marks[j]) > 0) n++;
-      }
-      return n;
-    };
-    const pillCountOf = (i, rect) => {
-      let n = 0;
-      for (let j = 0; j < rects.length; j++) {
-        if (j !== i && rects[j] && ovArea(rect, rects[j]) > 0) n++;
-      }
-      return n;
-    };
     for (let pass = 0; pass < 8; pass++) {
+      if (searchOps > SEARCH_OP_BUDGET) break;
       let moved = false;
-      for (let i = 0; i < items.length; i++) {
+      for (let i = 0; i < n; i++) {
         if (costs[i][I_MARK] === 0) continue;
-        const base = total;
         const curMC = markCountOf(i, rects[i]);
-        const curPC = pillCountOf(i, rects[i]);
+        const curPC = pillOv[i].size;
         let bestC = null, bestKey = null;
         for (const c of candCache[i].concat(dodgeFor(i, items[i]))) {
           if (c === cur[i]) continue;
-          const cc = costOf(i, c.rect);
-          const nt = base.map((t, x) => t - costs[i][x] + cc[x]);
-          if (nt[I_REG] > base[I_REG] || nt[I_PILL] > base[I_PILL] || nt[I_CVS] > base[I_CVS]) continue;
+          const ev = trialEvalGuard(i, c, [I_REG, I_PILL, I_CVS], true);
+          if (!ev) continue;
+          const nt = total.map((t, x) => t - costs[i][x] + ev.cost[x]);
+          if (nt[I_REG] > total[I_REG] || nt[I_PILL] > total[I_PILL] || nt[I_CVS] > total[I_CVS]) continue;
           const mc = markCountOf(i, c.rect);
           if (mc > curMC) continue;
-          if (mc === curMC && nt[I_MARK] >= base[I_MARK]) continue;
-          if (pillCountOf(i, c.rect) > curPC) continue;
+          if (mc === curMC && nt[I_MARK] >= total[I_MARK]) continue;
+          if (ev.pillCount > curPC) continue;
           const key = [mc, nt[I_MARK]];
           if (!bestKey || lexLess(key, bestKey)) { bestKey = key; bestC = c; }
         }
-        if (bestC) {
-          cur[i] = bestC;
-          rects[i] = bestC.rect;
-          moved = true;
-          costs = items.map((it, j) => costOf(j, rects[j]));
-          total = totalOf(costs);
-        }
+        if (bestC) { applyMove(i, bestC); moved = true; }
       }
       if (!moved) break;
     }
@@ -1432,41 +1787,27 @@ function planLabelSlots(items, k, canvas, opts) {
   // search's strict lexicographic order leaves behind, without
   // ever trading a higher priority away.
   if (hard) {
-    const touchCountOf = (i, rect, againstMarks) => {
-      let n = 0;
-      const arr = againstMarks ? marks : rects;
-      for (let j = 0; j < arr.length; j++) {
-        if (j !== i && arr[j] && ovArea(rect, arr[j]) > 0) n++;
-      }
-      return n;
-    };
     for (let pass = 0; pass < 8; pass++) {
+      if (searchOps > SEARCH_OP_BUDGET) break;
       let moved = false;
-      for (let i = 0; i < items.length; i++) {
+      for (let i = 0; i < n; i++) {
         if (costs[i][I_PILL] === 0) continue;
-        const base = total;
-        const curPC = touchCountOf(i, rects[i], false);
-        const curMC = touchCountOf(i, rects[i], true);
+        const curPC = pillOv[i].size;
+        const curMC = markCountOf(i, rects[i]);
         let bestC = null, bestKey = null;
         for (const c of candCache[i].concat(dodgeFor(i, items[i]))) {
           if (c === cur[i]) continue;
-          const cc = costOf(i, c.rect);
-          const nt = base.map((t, x) => t - costs[i][x] + cc[x]);
-          if (nt[I_REG] > base[I_REG] || nt[I_MARK] > base[I_MARK] || nt[I_CVS] > base[I_CVS]) continue;
-          const pc = touchCountOf(i, c.rect, false);
-          if (pc > curPC) continue;
-          if (pc === curPC && nt[I_PILL] >= base[I_PILL]) continue;
-          if (touchCountOf(i, c.rect, true) > curMC) continue;
-          const key = [pc, nt[I_PILL]];
+          const ev = trialEvalGuard(i, c, [I_REG, I_MARK, I_CVS], false);
+          if (!ev) continue;
+          const nt = total.map((t, x) => t - costs[i][x] + ev.cost[x]);
+          if (nt[I_REG] > total[I_REG] || nt[I_MARK] > total[I_MARK] || nt[I_CVS] > total[I_CVS]) continue;
+          if (ev.pillCount > curPC) continue;
+          if (ev.pillCount === curPC && nt[I_PILL] >= total[I_PILL]) continue;
+          if (markCountOf(i, c.rect) > curMC) continue;
+          const key = [ev.pillCount, nt[I_PILL]];
           if (!bestKey || lexLess(key, bestKey)) { bestKey = key; bestC = c; }
         }
-        if (bestC) {
-          cur[i] = bestC;
-          rects[i] = bestC.rect;
-          moved = true;
-          costs = items.map((it, j) => costOf(j, rects[j]));
-          total = totalOf(costs);
-        }
+        if (bestC) { applyMove(i, bestC); moved = true; }
       }
       if (!moved) break;
     }
@@ -2952,20 +3293,40 @@ function mapViewCentreStored() {
 
 async function enterMapEdit() {
   if (!IS_ADMIN() || currentMapId == null) return;
+  const prevTidy = mapTidy;
   mapEdit.on = true;
   mapEdit.selDevice = null; mapEdit.selLine = null;
   mapEdit.linkFirst = null; mapEdit.linkMode = false; syncLinkBtn();
   if (mapTidy) { mapTidy = false; syncTidyBtns(); }
   setMapEditStatus('');
-  renderMap(currentMapId);
+  try {
+    await renderMap(currentMapId);
+  } catch (err) {
+    // Never leave a half-entered edit state behind: roll back to
+    // the plain view so the map stays usable.
+    mapEdit.on = false;
+    mapTidy = prevTidy; syncTidyBtns();
+    const wrap = $('#map-wrap'); if (wrap) wrap.classList.remove('editing');
+    const ep = $('#map-edit-panel'); if (ep) ep.classList.add('hidden');
+    const btn = $('#map-edit-btn'); if (btn) btn.classList.remove('active');
+    setMapEditStatus('Edit Mode could not be opened for this map.');
+  }
 }
-function exitMapEdit() {
+async function exitMapEdit() {
+  // State is reset first, so even if the re-render fails the UI is
+  // out of Edit Mode rather than stuck in it.
   mapEdit.on = false;
   mapEdit.selDevice = null; mapEdit.selLine = null;
   mapEdit.linkFirst = null; mapEdit.linkMode = false; syncLinkBtn();
   const panel = $('#map-sel-panel');
   if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
-  if (currentMapId != null) renderMap(currentMapId);
+  try {
+    if (currentMapId != null) await renderMap(currentMapId);
+  } catch (err) {
+    const wrap = $('#map-wrap'); if (wrap) wrap.classList.remove('editing');
+    const ep = $('#map-edit-panel'); if (ep) ep.classList.add('hidden');
+    const btn = $('#map-edit-btn'); if (btn) btn.classList.remove('active');
+  }
 }
 $('#map-edit-btn') && ($('#map-edit-btn').onclick = () => { mapEdit.on ? exitMapEdit() : enterMapEdit(); });
 $('#map-edit-done') && ($('#map-edit-done').onclick = () => exitMapEdit());
@@ -3207,6 +3568,11 @@ wireSnmpVersion('#map-new-snmp-version', '#map-new-v3-fields');
 // marker, its label and the attached lines follow the pointer in
 // scene coordinates; on drop the new stored position is saved and
 // the map re-renders from the database.
+// True while a map device drag is in progress; the periodic
+// status refresh skips its cycle rather than swapping the object
+// list under the pointer.
+let mapDragActive = false;
+
 function startMapDeviceDrag(e, g, svg) {
   if (!mapEdit.on || e.button !== 0) return;
   const objId = +(g.dataset.mapobj || 0);
@@ -3214,6 +3580,7 @@ function startMapDeviceDrag(e, g, svg) {
   if (!obj || !mapScene) return;
   e.preventDefault();
   hideMapTip();
+  mapDragActive = true;
   const pt = svg.createSVGPoint();
   const toScene = ev => { pt.x = ev.clientX; pt.y = ev.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); };
   const start = toScene(e);
@@ -3228,11 +3595,13 @@ function startMapDeviceDrag(e, g, svg) {
       return el ? { o, el, x1: +el.getAttribute('x1'), y1: +el.getAttribute('y1'), x2: +el.getAttribute('x2'), y2: +el.getAttribute('y2') } : null;
     }).filter(Boolean);
   let moved = false, lastDx = 0, lastDy = 0;
-  const onMove = ev => {
-    const p = toScene(ev);
-    const dx = p.x - start.x, dy = p.y - start.y;
-    if (!moved && Math.hypot(dx, dy) < 2) return;
-    moved = true; lastDx = dx; lastDy = dy;
+  // Pointer moves can arrive far faster than frames render; the
+  // DOM work runs once per animation frame with the latest delta
+  // instead of on every event.
+  let rafId = 0;
+  const applyMove = () => {
+    rafId = 0;
+    const dx = lastDx, dy = lastDy;
     for (const grp of [marker, label]) {
       if (!grp) continue;
       grp.dataset.cx = (origCx + dx).toFixed(1);
@@ -3244,9 +3613,22 @@ function startMapDeviceDrag(e, g, svg) {
       if (L.o.line_to_device === obj.device_id) { L.el.setAttribute('x2', L.x2 + dx); L.el.setAttribute('y2', L.y2 + dy); }
     }
   };
-  const onUp = async () => {
+  const onMove = ev => {
+    const p = toScene(ev);
+    const dx = p.x - start.x, dy = p.y - start.y;
+    if (!moved && Math.hypot(dx, dy) < 2) return;
+    moved = true; lastDx = dx; lastDy = dy;
+    if (!rafId) rafId = requestAnimationFrame(applyMove);
+  };
+  const onCancel = () => {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    mapDragActive = false;
+  };
+  const onUp = async () => {
+    onCancel();
     if (!moved) return;
     const nx = obj.x + lastDx, ny = obj.y - lastDy; // scene Y is the stored Y flipped
     try {
@@ -3260,6 +3642,7 @@ function startMapDeviceDrag(e, g, svg) {
   };
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
 }
 
 // wireMapEdit runs after every map render: it applies the editing
@@ -3298,6 +3681,9 @@ function wireMapEdit(svg) {
 // re-render, so pan/zoom and the flow animations keep running).
 async function refreshMapStatus() {
   if (currentMapId == null || $('#view-maps').classList.contains('hidden')) return;
+  // A drag holds references into the current object list; skip
+  // this cycle and let the next one refresh.
+  if (mapDragActive) return;
   try {
     const { objects } = await api('/api/maps/' + currentMapId);
     currentMapObjects = objects;

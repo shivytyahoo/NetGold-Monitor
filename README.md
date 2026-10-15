@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-DAA520" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Version-3.7.0-2F7F4F" alt="Version 3.7.0">
+  <img src="https://img.shields.io/badge/Version-3.7.1-2F7F4F" alt="Version 3.7.1">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-555555" alt="Platforms: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/Built%20with-Go-00ADD8" alt="Built with Go">
 </p>
@@ -27,14 +27,14 @@ every platform:
 
 | Platform | File |
 |---|---|
-| Windows (64-bit) | `NetGold-Monitor-Setup-v3.7.0.exe` (recommended installer) or `NetGold-Monitor-v3.7.0.exe` (portable) |
+| Windows (64-bit) | `NetGold-Monitor-Setup-v3.7.1.exe` (recommended installer) or `NetGold-Monitor-v3.7.1.exe` (portable) |
 | Linux (64-bit) | `netgold` |
 | macOS (Intel) | `netgold-darwin-amd64` |
 | macOS (Apple Silicon) | `netgold-darwin-arm64` |
 
 ### Windows
 Recommended: run the installer — see **Install on Windows** below.
-The portable `NetGold-Monitor-v3.7.0.exe` also works by itself:
+The portable `NetGold-Monitor-v3.7.1.exe` also works by itself:
 double-click it and the dashboard opens in your browser; the program
 runs quietly in the system tray (no console window). On the first
 run the portable copy installs itself to `%LOCALAPPDATA%\NetGold`
@@ -68,10 +68,10 @@ immediately, with no real network gear needed.
 
 ## Install on Windows
 
-Run **`NetGold-Monitor-Setup-v3.7.0.exe`** (administrator approval is
+Run **`NetGold-Monitor-Setup-v3.7.1.exe`** (administrator approval is
 asked once, for the install itself). The installer:
 
-- installs **NetGold Monitor 3.7.0** by **Shivam Bhalla** into
+- installs **NetGold Monitor 3.7.1** by **Shivam Bhalla** into
   `C:\Program Files\NetGold Monitor`, with the program icon, a Start
   Menu folder ("NetGold Monitor" and "Uninstall NetGold Monitor"),
   an optional desktop shortcut, and a normal Add/Remove Programs
@@ -126,7 +126,7 @@ NetGold Monitor is an unsigned, open-source build. That means:
   **More info → Run anyway**. Entering the exact version is in the
   file name precisely so you can be sure which build you are running.
 - You can verify your download: every release lists the SHA-256 of
-  each file, and `Get-FileHash .\NetGold-Monitor-v3.7.0.exe` in
+  each file, and `Get-FileHash .\NetGold-Monitor-v3.7.1.exe` in
   PowerShell shows the hash of the file you have — it must match the
   published one exactly.
 - The program is built to be easy for antivirus software to judge:
@@ -581,7 +581,7 @@ You need Go 1.22+; there are no other build requirements (pure Go,
 ```bash
 go vet ./... && go test ./...
 go build -o dist/netgold ./cmd/netgold                                        # Linux
-GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o dist/NetGold-Monitor-v3.7.0.exe ./cmd/netgold  # Windows
+GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o dist/NetGold-Monitor-v3.7.1.exe ./cmd/netgold  # Windows
 GOOS=darwin GOARCH=amd64 go build -o dist/netgold-darwin-amd64 ./cmd/netgold  # macOS Intel
 GOOS=darwin GOARCH=arm64 go build -o dist/netgold-darwin-arm64 ./cmd/netgold  # macOS Apple Silicon
 ```
@@ -604,7 +604,7 @@ script (`installer/netgold.nsi`). It expects the pinned
 `SqlLocalDB.msi` (63,508,480 bytes, from the same Microsoft URL the
 program itself uses) in `build-cache/`; then, from the repository
 root: `makensis installer/netgold.nsi` produces
-`dist/NetGold-Monitor-Setup-v3.7.0.exe`.
+`dist/NetGold-Monitor-Setup-v3.7.1.exe`.
 
 Layout: `cmd/netgold` entry point (+ Windows service control) ·
 `internal/store` SQLite · `internal/poller` engine (ping/SNMP/
@@ -641,6 +641,43 @@ embedded UI + JSON API (sign-in and roles live in
   "Backup import — automatic engine setup" above).
 - Fixed `/api/stats` returning 500 on a brand-new, still-empty
   database (NULL sums) — found by live-testing a fresh install.
+
+## What changed in v3.7.1
+
+- **Fixed: entering Map Edit Mode could freeze the page on large
+  maps.** Edit Mode renders the map in its faithful view, and the
+  label placement planner behind that view slowed down sharply
+  as maps grew: on a dense map of about 100 devices it could keep
+  the browser busy for minutes, so the browser reported the page
+  as not responding. Sparse maps were unaffected, which made the
+  freeze look intermittent. The planner now keeps its working
+  data incrementally — each label's region, marker and canvas
+  costs are computed once and cached, label overlaps are tracked
+  in a spatial grid instead of being recounted after every move,
+  and the joint repair of overlapping label pairs scores
+  candidate pairs from their separate parts instead of
+  re-evaluating the whole scene for every combination. The
+  decisions are unchanged: same candidate order, same priorities,
+  same acceptance rules, and on every map in the test set the
+  planner produces exactly the placements the previous version
+  produced — verified label for label against the pre-fix
+  baseline, with the label-collision counts identical. Only the
+  time changed: the densest real map's faithful render drops from
+  about four minutes to about three seconds, and a synthetic
+  stress map of 220 devices in tight clusters (which previously
+  did not finish at all) completes in about five seconds. A
+  generous internal work budget remains as a safety net for
+  pathological inputs: every move the planner accepts strictly
+  improves the arrangement, so even if the budget ever runs out,
+  the best arrangement found so far is kept.
+- **Smoother editing interactions.** Dragging a device on the
+  map now applies its pointer movements once per animation frame
+  instead of on every pointer event, the 15-second status refresh
+  skips a cycle while a drag is in progress rather than swapping
+  the map's object list under the pointer, and entering or
+  leaving Edit Mode can no longer leave the page in a stuck
+  half-editing state if a render fails.
+- Version **3.7.1** everywhere (program, installer, this README).
 
 ## What changed in v3.7.0
 

@@ -25,7 +25,7 @@ import (
 )
 
 // Version is the NetGold release served by this build.
-const Version = "3.7.0"
+const Version = "3.7.1"
 
 // versionToken is the placeholder in the embedded index page that is
 // replaced with Version when the page is served (v2.2.2). The page

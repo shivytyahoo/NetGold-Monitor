@@ -9,24 +9,24 @@
    "Build": 0,
    "Major": 3,
    "Minor": 7,
-   "Patch": 0
+   "Patch": 1
   },
   "ProductVersion": {
    "Build": 0,
    "Major": 3,
    "Minor": 7,
-   "Patch": 0
+   "Patch": 1
   }
  },
  "StringFileInfo": {
   "CompanyName": "Shivam Bhalla",
   "FileDescription": "NetGold Monitor \u2014 free, open-source network monitoring",
-  "FileVersion": "3.7.0",
+  "FileVersion": "3.7.1",
   "InternalName": "netgold",
   "LegalCopyright": "Copyright (c) 2026 Shivam Bhalla",
   "OriginalFilename": "netgold.exe",
   "ProductName": "NetGold Monitor",
-  "ProductVersion": "3.7.0"
+  "ProductVersion": "3.7.1"
  },
  "VarFileInfo": {
   "Translation": {
