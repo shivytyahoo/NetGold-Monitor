@@ -15,7 +15,7 @@ import (
 const (
 	serviceName        = "NetGoldMonitor"
 	serviceDisplayName = "NetGold Monitor"
-	serviceDescription = "NetGold Monitor — free, open-source network monitoring (ping, SNMP, NetFlow, syslog). Developed by Shivam Bhalla."
+	serviceDescription = "NetGold Monitor — free, open-source network monitoring (ping, SNMP, NetFlow, syslog). Developed by Shiv."
 )
 
 // runningAsWindowsService reports whether the process was started by

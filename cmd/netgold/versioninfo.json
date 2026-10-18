@@ -19,11 +19,11 @@
   }
  },
  "StringFileInfo": {
-  "CompanyName": "Shivam Bhalla",
+  "CompanyName": "Shiv",
   "FileDescription": "NetGold Monitor \u2014 free, open-source network monitoring",
   "FileVersion": "3.7.1",
   "InternalName": "netgold",
-  "LegalCopyright": "Copyright (c) 2026 Shivam Bhalla",
+  "LegalCopyright": "Copyright (c) 2026 Shiv",
   "OriginalFilename": "netgold.exe",
   "ProductName": "NetGold Monitor",
   "ProductVersion": "3.7.1"

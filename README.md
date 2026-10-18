@@ -16,7 +16,7 @@ v2c/v3 and service monitoring, MRTG-style bandwidth graphs, network maps
 and topologies, downtime reports and email alerts, in **one single file**
 with no runtime, no database server and no setup.
 
-Developed by **Shivam Bhalla** · MIT License · Works fully offline
+Developed by **Shiv** · MIT License · Works fully offline
 
 ---
 
@@ -71,7 +71,7 @@ immediately, with no real network gear needed.
 Run **`NetGold-Monitor-Setup-v3.7.1.exe`** (administrator approval is
 asked once, for the install itself). The installer:
 
-- installs **NetGold Monitor 3.7.1** by **Shivam Bhalla** into
+- installs **NetGold Monitor 3.7.1** by **Shiv** into
   `C:\Program Files\NetGold Monitor`, with the program icon, a Start
   Menu folder ("NetGold Monitor" and "Uninstall NetGold Monitor"),
   an optional desktop shortcut, and a normal Add/Remove Programs
@@ -301,7 +301,7 @@ up, its plate is a green diamond._
   not yet been exercised on a live Windows machine.
 - **Application icon (v2.1)** — the Windows executable carries the
   NetGold icon and version information (ProductName *NetGold
-  Monitor*, FileVersion 2.2.4, CompanyName *Shivam Bhalla*) embedded
+  Monitor*, FileVersion 2.2.4, CompanyName *Shiv*) embedded
   in the file itself; the resource section of the shipped `.exe` was
   parsed and verified to contain both.
 - **SNMP v3 and email alerts** were additionally live-tested for v2.1
@@ -1241,7 +1241,7 @@ itself.
   console and print as before; the Windows service mode is
   unchanged. Linux/macOS builds keep their console behaviour.
 - **A proper Windows installer** (`NetGold-Monitor-Setup-v3.0.0.exe`,
-  NSIS): product name, publisher "Shivam Bhalla" and version in
+  NSIS): product name, publisher "Shiv" and version in
   Add/Remove Programs, Program Files install, Start Menu shortcuts
   plus an uninstaller, an optional desktop shortcut, a "stop the
   running copy first" offer, and a finish page that can launch the
@@ -1272,7 +1272,7 @@ itself.
   messages keep quoting the installer log.
 - **Application manifest + release hygiene.** The Windows program
   now embeds a proper application manifest (identity
-  `NetGoldMonitor` 3.0.0.0, "network monitoring by Shivam Bhalla",
+  `NetGoldMonitor` 3.0.0.0, "network monitoring by Shiv",
   runs as the invoking user, Windows 10/11 supported, per-monitor
   DPI aware), alongside the existing embedded icon and version
   information. See the SmartScreen / antivirus note above for what
@@ -1313,7 +1313,7 @@ file, and on the screen the moment the program starts.
   never hide which copy is which again.
 - **The version is printed at startup.** The very first lines every
   run writes to its console are a banner — *NetGold Monitor
-  v2.2.3 / Developed by Shivam Bhalla / Web interface:
+  v2.2.3 / Developed by Shiv / Web interface:
   http://localhost:8080* — before any other log line. On Windows
   the console window's title says the same ("NetGold Monitor
   v2.2.3"). The banner reads the same version constant the web
@@ -1410,7 +1410,7 @@ real Windows test of v2.2:
   status glows, slide-in toasts, skeleton loaders) and a premium sound
   design (three sound packs + volume + UI feedback sounds). New pages:
   Topology, Alarms, Settings, About. Footer and About credit:
-  *Developed by Shivam Bhalla*.
+  *Developed by Shiv*.
 - **Topology segment** — manual editor (drag & save), copy-from-map,
   Excel import/export with a downloadable template and auto-layout.
 - **SNMP v3** and **executed service monitors** with the legacy system's
@@ -1427,8 +1427,8 @@ redesign and extension, not a rewrite of the engine.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Copyright (c) 2026 **Shivam Bhalla**.
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 **Shiv**.
 
-**NetGold Monitor — Developed by Shivam Bhalla**, as a free tool for the
+**NetGold Monitor — Developed by Shiv**, as a free tool for the
 IT community. Contributions are welcome — see
 [CONTRIBUTING.md](CONTRIBUTING.md).

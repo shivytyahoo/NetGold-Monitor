@@ -56,5 +56,5 @@ Status key: ✅ done · 🔨 in progress · 🗓️ planned · ❌ out of scope
 
 ---
 
-NetGold Monitor is developed by **Shivam Bhalla** and released under the
+NetGold Monitor is developed by **Shiv** and released under the
 MIT License — free and open source, for every IT professional.

@@ -207,7 +207,7 @@ func (t *trayState) showMenu() {
 		return
 	}
 	openText, _ := windows.UTF16PtrFromString("Open NetGold Monitor")
-	infoText, _ := windows.UTF16PtrFromString("NetGold Monitor v" + web.Version + " — by Shivam Bhalla")
+	infoText, _ := windows.UTF16PtrFromString("NetGold Monitor v" + web.Version + " — by Shiv")
 	exitText, _ := windows.UTF16PtrFromString("Exit NetGold Monitor")
 	_, _, _ = procAppendMenuW.Call(menu, mfString, menuOpen, uintptr(unsafe.Pointer(openText)))
 	_, _, _ = procAppendMenuW.Call(menu, mfString|mfGrayed|mfDisabled, menuInfo, uintptr(unsafe.Pointer(infoText)))

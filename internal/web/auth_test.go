@@ -79,7 +79,7 @@ func TestNoSessionIsLockedOut(t *testing.T) {
 	// The login page itself is public and carries the branding.
 	rec = doJSON(t, h, http.MethodGet, "/login", nil, nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "NetGold Monitor v"+Version) {
-		t.Fatalf("GET /login = %d; body has branding: %v", rec.Code, strings.Contains(rec.Body.String(), "Shivam Bhalla"))
+		t.Fatalf("GET /login = %d; body has branding: %v", rec.Code, strings.Contains(rec.Body.String(), "Shiv"))
 	}
 	// A forged cookie is worth nothing.
 	bogus := &http.Cookie{Name: sessionCookieName, Value: "not-a-real-token"}

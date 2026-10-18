@@ -101,7 +101,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Printf("NetGold Monitor v%s — Developed by Shivam Bhalla\n", web.Version)
+		fmt.Printf("NetGold Monitor v%s — Developed by Shiv\n", web.Version)
 		return
 	}
 
@@ -298,7 +298,7 @@ func autoOpenBrowser(addr string) {
 func printBanner(addr string) {
 	fmt.Println("============================================")
 	fmt.Printf("  NetGold Monitor v%s\n", web.Version)
-	fmt.Println("  Developed by Shivam Bhalla")
+	fmt.Println("  Developed by Shiv")
 	fmt.Printf("  Web interface: %s\n", webURL(addr))
 	fmt.Println("============================================")
 }

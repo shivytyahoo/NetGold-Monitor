@@ -6,7 +6,7 @@
 #   sudo systemctl daemon-reload && sudo systemctl enable --now netgold
 # Dashboard: http://localhost:8080
 [Unit]
-Description=NetGold Monitor — free, open-source network monitoring (developed by Shivam Bhalla)
+Description=NetGold Monitor — free, open-source network monitoring (developed by Shiv)
 After=network-online.target
 Wants=network-online.target
 
